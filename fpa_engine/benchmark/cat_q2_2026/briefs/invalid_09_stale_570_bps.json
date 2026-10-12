@@ -1,0 +1,7 @@
+{
+  "title": "Invalid: stale 570 bps plug",
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "9a07a9113b5847badf8f4191d71b29bf4f238a7f1d362fe373e9c4981a29b4fc", "author": "hand-written fixture (invalid)"},
+  "statements": [
+    {"id": "X1", "kind": "interpretive", "text": "About 570 bps of the CI margin recovery appears to come from volume leverage and price.", "premise_ids": ["S35", "S17"]}
+  ]
+}

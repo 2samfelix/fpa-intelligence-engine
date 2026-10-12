@@ -12,7 +12,7 @@ test = ["pytest>=8,<9"]
 include = ["fpa_engine*"]
 
 [tool.setuptools.package-data]
-fpa_engine = ["benchmark/*/*.json"]
+fpa_engine = ["benchmark/*/*.json", "benchmark/*/briefs/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,38 @@
+{
+  "analysis_id": "cat-q2-2026-ci",
+  "company": "Caterpillar Inc.",
+  "period": "Q2 2026",
+  "scope": "Construction Industries",
+  "material_flags": ["mixed_basis", "non_comparable", "directional", "upper_bound", "scope_period_inferred", "restatement_untested"],
+  "comparability_notes": [
+    {"id": "CN01", "subject_ids": ["S21", "S22", "D07", "D08"], "text": "CI retail sales growth is reported in price-neutral dollars based on dealer-reported unit sales and is disclosed only to the whole percent, so any gap measured against it carries up to half a point of rounding uncertainty."},
+    {"id": "CN02", "subject_ids": ["D07", "D08"], "text": "The adjusted reported-versus-retail gap is a directional and relative indicator of dealer stocking, not a dollar measure of dealer inventory."},
+    {"id": "CN03", "subject_ids": ["D20", "D21"], "text": "The implied stocking swing applies a price-neutral retail percentage to a current-price reported sales base; it is not comparable with disclosed dealer-inventory dollars and supports direction only."},
+    {"id": "CN04", "subject_ids": ["S23", "S24", "D14"], "text": "Dealer-inventory dollars are disclosed at Construction Industries scope in some quarters and company-wide in others; the company-wide figure's scope and period qualifier are inferred, not read from the filing."},
+    {"id": "CN05", "subject_ids": ["S23", "S24", "S25"], "text": "These Form 10-Q dealer-inventory amounts were confirmed by an exact-phrase match against the EDGAR full-text index; the surrounding sentence was not read."},
+    {"id": "CN06", "subject_ids": ["S14", "S16", "S18", "S20", "S36", "S37", "D11", "D12", "D22"], "text": "Prior-year CI segment profit and margin figures come from the original release versions; whether later releases restated them has not been tested."},
+    {"id": "CN07", "subject_ids": ["S17", "S18", "S19", "S20", "S35", "S37", "D09", "D10", "D23"], "text": "CI segment margins are disclosed to one decimal place, so margin changes measured in basis points carry up to ten basis points of rounding uncertainty."},
+    {"id": "CN08", "subject_ids": ["D16", "D17", "D24", "S28", "S40"], "text": "Ex-tariff margin is an upper bound on underlying performance: the manufacturing-cost line only largely reflected tariffs, and price realization was taken partly to recover the same tariff costs."},
+    {"id": "CN09", "subject_ids": ["S29", "D18", "D25"], "text": "The Q2 2026 tariff impact was disclosed on the earnings call in basis points, while the Q4 2025 and Q1 2026 figures are computed by a different method; the two are not a comparable series."},
+    {"id": "CN10", "subject_ids": ["D15"], "text": "The Q2 2026 tariff drag in dollars is derived from the disclosed basis-point impact and reported sales; Caterpillar did not disclose a dollar amount."},
+    {"id": "CN11", "subject_ids": ["S30"], "text": "The IEEPA tariff recoveries are a one-time item in consolidated operating profit; management said the majority sits in corporate items rather than the segments."},
+    {"id": "CN12", "subject_ids": ["S10", "S27", "S39"], "text": "Price realization appears in both the sales bridge and the segment profit bridge; it is the same economic item and must not be counted twice."},
+    {"id": "CN13", "subject_ids": ["S29"], "text": "This figure comes from a third-party transcript of management's call remarks, not from a filing."}
+  ],
+  "gap_links": {
+    "G01": ["S24", "NA05"],
+    "G02": ["D20", "NA03"],
+    "G03": ["D21", "NA04"],
+    "G04": ["D11", "R04"],
+    "G05": ["D11", "R04"],
+    "G06": ["D11", "R04"],
+    "G07": ["S14", "D11"]
+  },
+  "forbidden_values": [
+    {"id": "FV01", "unit": "bps", "value": "343", "reason": "Stale rounding artifact for the Q2 2026 CI tariff impact; the disclosed figure is 340 bps."},
+    {"id": "FV02", "unit": "bps", "value": "342.85", "reason": "The Q4 2025 and Q1 2026 distortion method re-applied to Q2 2026; not the disclosed 340 bps."},
+    {"id": "FV03", "unit": "bps", "value": "570", "reason": "Plug that mixes the simple drag-to-sales ratio with the 340 bps call figure; not a measured attribution."},
+    {"id": "FV04", "unit": "usd_m", "value": "3113", "reason": "Back-solved Q2 2026 consolidated sales volume; the disclosed figure is $3.1 billion."},
+    {"id": "FV05", "unit": "usd_m", "low": "100", "high": "150", "reason": "Unsupported judgment estimate of the residual dealer-stocking gap; not computable from disclosure."}
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "title": "Invalid: interpretive evidence labelled as an explicit claim",
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "9a07a9113b5847badf8f4191d71b29bf4f238a7f1d362fe373e9c4981a29b4fc", "author": "hand-written fixture (invalid)"},
+  "statements": [
+    {"id": "X1", "kind": "explicit_claim", "text": "Management said the primary volume driver shifted from dealer inventories to end users.", "evidence_ids": ["N03"]},
+    {"id": "X2", "kind": "limitation", "text": "The driver-order reading rests on an unsourced assumption and needs review.", "evidence_ids": ["N03"]}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "title": "Invalid: new arithmetic performed in prose",
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "9a07a9113b5847badf8f4191d71b29bf4f238a7f1d362fe373e9c4981a29b4fc", "author": "hand-written fixture (invalid)"},
+  "statements": [
+    {"id": "X1", "kind": "fact", "text": "World CI retail growth accelerated by 15 percentage points from Q1 to Q2 2026.", "fact_ids": ["S21", "S22"]}
+  ]
+}

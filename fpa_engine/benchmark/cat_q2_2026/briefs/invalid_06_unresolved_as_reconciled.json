@@ -1,0 +1,8 @@
+{
+  "title": "Invalid: unresolved bridge presented as reconciled",
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "9a07a9113b5847badf8f4191d71b29bf4f238a7f1d362fe373e9c4981a29b4fc", "author": "hand-written fixture (invalid)"},
+  "statements": [
+    {"id": "X1", "kind": "fact", "text": "The Q1 2026 CI segment profit bridge fully reconciles: volume, price and manufacturing costs account for the entire $511M increase.", "fact_ids": ["D12", "S26", "S27", "S28"], "reconciliation_ids": ["R03"]},
+    {"id": "X2", "kind": "limitation", "text": "The prior-year profit comparative has not been tested for restatement.", "fact_ids": ["D12"], "reconciliation_ids": ["R03"]}
+  ]
+}

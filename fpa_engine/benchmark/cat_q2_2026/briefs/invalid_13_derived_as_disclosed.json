@@ -1,0 +1,7 @@
+{
+  "title": "Invalid: derived $284M tariff drag presented as disclosed",
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "9a07a9113b5847badf8f4191d71b29bf4f238a7f1d362fe373e9c4981a29b4fc", "author": "hand-written fixture (invalid)"},
+  "statements": [
+    {"id": "X1", "kind": "fact", "text": "Caterpillar disclosed a $284M Q2 2026 CI tariff drag.", "fact_ids": ["D15"]}
+  ]
+}

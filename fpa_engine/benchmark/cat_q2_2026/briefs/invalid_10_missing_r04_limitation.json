@@ -1,0 +1,8 @@
+{
+  "title": "Invalid: missing limitation for unresolved R04",
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "9a07a9113b5847badf8f4191d71b29bf4f238a7f1d362fe373e9c4981a29b4fc", "author": "hand-written fixture (invalid)"},
+  "statements": [
+    {"id": "X1", "kind": "fact", "text": "Q2 2026 CI segment profit rose $703M year over year.", "fact_ids": ["D11"]},
+    {"id": "X2", "kind": "limitation", "text": "Profit drivers were not quantified and the prior-year comparative is untested for restatement.", "fact_ids": ["D11"], "flag_ids": ["G04", "G05", "G06", "G07"]}
+  ]
+}

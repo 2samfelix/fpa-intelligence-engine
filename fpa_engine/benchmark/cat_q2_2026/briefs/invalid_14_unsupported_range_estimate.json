@@ -1,0 +1,8 @@
+{
+  "title": "Invalid: unsupported $100-150M residual estimate",
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "9a07a9113b5847badf8f4191d71b29bf4f238a7f1d362fe373e9c4981a29b4fc", "author": "hand-written fixture (invalid)"},
+  "statements": [
+    {"id": "X1", "kind": "fact", "text": "The unexplained Q1 2026 dealer-stocking residual implied by the directional gap is $100–150M.", "fact_ids": ["D21"]},
+    {"id": "X2", "kind": "limitation", "text": "The implied swing is not comparable with disclosed dealer-inventory dollars and the prior-year build is unquantified.", "fact_ids": ["D21"], "flag_ids": ["G03"]}
+  ]
+}
