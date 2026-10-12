@@ -1,0 +1,19 @@
+[project]
+name = "fpa-intelligence-engine"
+version = "0.1.0"
+description = "Deterministic FP&A benchmark engine (Gate B1: Caterpillar Q2 2026 Construction Industries)"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2,<3"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9"]
+
+[tool.setuptools.packages.find]
+include = ["fpa_engine*"]
+
+[tool.setuptools.package-data]
+fpa_engine = ["benchmark/*/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

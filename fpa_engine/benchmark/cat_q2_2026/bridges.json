@@ -1,0 +1,145 @@
+[
+  {
+    "id": "R01",
+    "name": "CI sales bridge",
+    "period": "Q2 2026",
+    "scope": "CI",
+    "bridge_type": "company_disclosed_bridge",
+    "starting_fact": "S02",
+    "ending_fact": "S01",
+    "components": {"volume": "S03", "price_realization": "S04", "currency": "S05", "inter_segment": "S06"},
+    "completeness": "complete",
+    "footing": "exact",
+    "footing_evidence": "Caterpillar presents the segment sales bridge as a single footed table: volume, price realization, currency and inter-segment sum exactly to the reported change. 28 of the 32 quarter-segment bridges in the workbook that can be tested independently close to exactly $0M (Gate A)."
+  },
+  {
+    "id": "R02",
+    "name": "CI sales bridge",
+    "period": "Q1 2026",
+    "scope": "CI",
+    "bridge_type": "company_disclosed_bridge",
+    "starting_fact": "S08",
+    "ending_fact": "S07",
+    "components": {"volume": "S09", "price_realization": "S10", "currency": "S11", "inter_segment": "S12"},
+    "completeness": "complete",
+    "footing": "exact",
+    "footing_evidence": "Same footed segment sales-bridge table as R01."
+  },
+  {
+    "id": "R03",
+    "name": "CI segment profit bridge",
+    "period": "Q1 2026",
+    "scope": "CI",
+    "bridge_type": "company_disclosed_bridge",
+    "starting_fact": "S16",
+    "ending_fact": "S15",
+    "components": {"volume": "S26", "price_realization": "S27", "manufacturing_costs": "S28"},
+    "unquantified_components": ["other segment-profit drivers Caterpillar did not itemize"],
+    "completeness": "partial",
+    "footing": "none",
+    "notes": "Caterpillar itemizes only the drivers it considers primary (Construction Industries!A20). Starting and ending profit come from different releases."
+  },
+  {
+    "id": "R04",
+    "name": "CI segment profit bridge",
+    "period": "Q2 2026",
+    "scope": "CI",
+    "bridge_type": "company_disclosed_bridge",
+    "starting_fact": "S14",
+    "ending_fact": "S13",
+    "components": {},
+    "unquantified_components": ["volume (not collected, G04)", "price realization (not collected, G05)", "manufacturing costs (not disclosed, G06)", "other drivers"],
+    "completeness": "partial",
+    "footing": "none",
+    "notes": "No Q2 2026 CI profit driver was quantified in the benchmark. The 340 bps call figure (S29) is a margin disclosure from a different source and is deliberately kept out of this release-sourced bridge (Construction Industries!A29)."
+  },
+  {
+    "id": "R05",
+    "name": "CI segment profit bridge",
+    "period": "Q4 2025",
+    "scope": "CI",
+    "bridge_type": "company_disclosed_bridge",
+    "starting_fact": "S36",
+    "ending_fact": "S34",
+    "components": {"volume": "S38", "price_realization": "S39", "manufacturing_costs": "S40"},
+    "unquantified_components": ["other segment-profit drivers Caterpillar did not itemize"],
+    "completeness": "partial",
+    "footing": "none",
+    "notes": "Caterpillar itemizes only the drivers it considers primary (Construction Industries!A20)."
+  },
+  {
+    "id": "NA01",
+    "name": "Demand-quality triad",
+    "period": "Q2 2026",
+    "scope": "CI",
+    "bridge_type": "non_additive_set",
+    "members": ["D01", "S22", "S25"],
+    "proposed_relation": "reported CI sales change = retail-driven growth + dealer-inventory build",
+    "notes": "README!A38: retail statistics are not on the same basis as reported sales. Do not subtract one from the other."
+  },
+  {
+    "id": "NA02",
+    "name": "Demand-quality triad",
+    "period": "Q1 2026",
+    "scope": "CI",
+    "bridge_type": "non_additive_set",
+    "members": ["D02", "S21", "S23"],
+    "proposed_relation": "reported CI sales change = retail-driven growth + dealer-inventory build"
+  },
+  {
+    "id": "NA03",
+    "name": "Dealer-inventory identity test",
+    "period": "Q2 2026",
+    "scope": "CI",
+    "bridge_type": "non_additive_set",
+    "members": ["D20", "S25"],
+    "proposed_relation": "implied stocking swing = dealer build(t) - dealer build(t-4)",
+    "notes": "The prior-year build is unquantified (G02). The case-study PDF states this is not an accounting identity; only the sign can be compared."
+  },
+  {
+    "id": "NA04",
+    "name": "Dealer-inventory identity test",
+    "period": "Q1 2026",
+    "scope": "CI",
+    "bridge_type": "non_additive_set",
+    "members": ["D21", "S23"],
+    "proposed_relation": "implied stocking swing = dealer build(t) - dealer build(t-4)",
+    "notes": "The prior-year build is unquantified (G03). Workbook estimates of a ~$100-150M residual are judgment, not computable."
+  },
+  {
+    "id": "NA05",
+    "name": "CI and company-wide dealer inventory as one series",
+    "period": "Q1 2026",
+    "scope": "CI / Company-wide",
+    "bridge_type": "non_additive_set",
+    "members": ["S23", "S24"],
+    "proposed_relation": "one continuous dealer-inventory series across scopes"
+  },
+  {
+    "id": "NA06",
+    "name": "Tariff drag bps across methods",
+    "period": "Q1 2026 to Q2 2026",
+    "scope": "CI",
+    "bridge_type": "non_additive_set",
+    "members": ["D18", "S29"],
+    "proposed_relation": "tariff drag narrowed from the Q1 2026 workbook-method bps to the Q2 2026 disclosed 340 bps"
+  },
+  {
+    "id": "NA07",
+    "name": "IEEPA recoveries against CI tariff drag",
+    "period": "Q2 2026",
+    "scope": "Consolidated / CI",
+    "bridge_type": "non_additive_set",
+    "members": ["S30", "D15"],
+    "proposed_relation": "net CI tariff impact = CI tariff drag - IEEPA recoveries"
+  },
+  {
+    "id": "NA08",
+    "name": "Consolidated cash flow against CI dealer build",
+    "period": "Q1 2026",
+    "scope": "Consolidated / CI",
+    "bridge_type": "non_additive_set",
+    "members": ["S31", "S23"],
+    "proposed_relation": "operating cash flow absorbs the CI dealer-inventory build"
+  }
+]
