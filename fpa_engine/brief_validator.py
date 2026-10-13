@@ -15,8 +15,9 @@ from fpa_engine.brief import (
     ForbiddenValue,
     PacketFact,
     StatementKind,
+    brief_title,
 )
-from fpa_engine.schemas import BridgeType, EvidenceType, ReconciliationStatus, ReviewStatus, StrictModel
+from fpa_engine.schemas import BridgeType, EvidenceType, ReconciliationStatus, StrictModel
 
 HUNDRED = Decimal("100")
 EPSILON = Decimal("1e-9")
@@ -52,9 +53,6 @@ NEGATION = re.compile(r"\b(not|no|never|unresolved|partial(?:ly)?|partly|unassig
 ADDITIVE_LANGUAGE = re.compile(
     r"\b(sum(?:s|med)?|adds?\s+up|added\s+up|plus|equals?|made\s+up\s+of|composed\s+of|consists?\s+of"
     r"|breaks?\s+down\s+into|decompos\w*|bridge[sd]?|reconcil\w*|accounts?\s+for)\b|(?<![<>!])=", re.I)
-REJECTION_LANGUAGE = re.compile(
-    r"\b(stale|rejected|not supported|unsupported|superseded|artifact|plug|back-solved|should not be used"
-    r"|do(?:es)? not use|not a (?:disclosed|valid))\b", re.I)
 DISCLOSURE_VERB = re.compile(r"disclos", re.I)
 
 @dataclass(frozen=True)
@@ -224,6 +222,7 @@ class _Context:
         self.narratives = packet.narrative_map
         self.recs = packet.reconciliation_map
         self.flags = packet.flag_map
+        self.notes = {n.id for n in packet.comparability_notes}
 
     def narrative_chain(self, nid: str) -> set[str]:
         chain, pending = set(), [nid]
@@ -262,6 +261,11 @@ def _check_references(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]
         if gid not in ctx.flags:
             errors.append(_issue("UNKNOWN_FLAG_ID", s, f"open flag {gid} is not in the packet", gid))
             known = False
+    for cid in s.comparability_note_ids:
+        if cid not in ctx.notes:
+            errors.append(_issue("UNKNOWN_COMPARABILITY_NOTE_ID", s, f"comparability note {cid} is not in the packet",
+                                 cid))
+            known = False
     return known
 
 
@@ -286,7 +290,8 @@ def _check_kind(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> N
         if not INTERPRETIVE_MARKERS.search(s.text):
             errors.append(_issue("INTERPRETIVE_MARKER_MISSING", s,
                                  "interpretive text reads as a disclosed fact; mark it as inference"))
-    elif not (s.fact_ids or s.evidence_ids or s.reconciliation_ids or s.premise_ids or s.flag_ids):
+    elif not (s.fact_ids or s.evidence_ids or s.reconciliation_ids or s.premise_ids or s.flag_ids
+              or s.comparability_note_ids):
         errors.append(_issue("LIMITATION_WITHOUT_SUBJECT", s, "a limitation must cite what it limits"))
 
 
@@ -301,7 +306,6 @@ def _cited_narratives(s: BriefStatement, ctx: _Context) -> list[str]:
 
 def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
     tokens, ranges = extract_numbers(s.text)
-    exempt = s.kind is StatementKind.limitation and bool(REJECTION_LANGUAGE.search(s.text))
     forbidden = ctx.packet.forbidden_values
 
     blocked_ranges = set()
@@ -309,8 +313,7 @@ def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -
         hit = next((fv for fv in forbidden if _range_forbidden(rng, fv)), None)
         if hit:
             blocked_ranges.add(rng.raw)
-            if not exempt:
-                errors.append(_issue("FORBIDDEN_VALUE", s, f"'{rng.raw}' is a forbidden value: {hit.reason}", hit.id))
+            errors.append(_issue("FORBIDDEN_VALUE", s, f"'{rng.raw}' is a forbidden value: {hit.reason}", hit.id))
 
     cited = _cited_facts(s, ctx)
     rec_values = [v for rid in s.reconciliation_ids for v in (
@@ -328,8 +331,7 @@ def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -
             continue
         hit = next((fv for fv in forbidden if _forbidden_hit(token, fv)), None)
         if hit:
-            if not exempt:
-                errors.append(_issue("FORBIDDEN_VALUE", s, f"'{token.raw}' is a forbidden value: {hit.reason}", hit.id))
+            errors.append(_issue("FORBIDDEN_VALUE", s, f"'{token.raw}' is a forbidden value: {hit.reason}", hit.id))
             continue
         matched = [f for f in cited if matches_fact(token, f)]
         if matched:
@@ -421,11 +423,9 @@ def _check_coverage(statements: list[BriefStatement], ctx: _Context, errors: lis
                 code = ("MISSING_NA_LIMITATION" if r.status is ReconciliationStatus.NOT_APPLICABLE
                         else "MISSING_RECONCILIATION_LIMITATION")
                 report(code, s, rid, f"{rid} is {r.status.value}; add a limitation citing it")
+        conditional = set(ctx.packet.surfacing_policy.conditional_narrative_ids)
         for nid in _cited_narratives(s, ctx):
-            chain = ctx.narrative_chain(nid)
-            problems = {c for c in chain if ctx.narratives[c].requires_limitation
-                        and (ctx.narratives[c].review_status is ReviewStatus.needs_review
-                             or ctx.narratives[c].assumptions)}
+            problems = ctx.narrative_chain(nid) & conditional
             if problems and not ({nid} | problems) & lim_narr:
                 report("MISSING_REVIEW_LIMITATION", s, nid,
                        f"{nid} depends on review-required or assumption-based evidence ({', '.join(sorted(problems))})")
@@ -457,6 +457,32 @@ def validate_statements(packet: BriefPacket, statements: list[BriefStatement]) -
     return BriefValidationResult(valid=not errors, errors=errors)
 
 
+def _check_brief_policy(packet: BriefPacket, brief: ExecutiveBrief) -> list[BriefIssue]:
+    """Brief-level rules from the packet policy: deterministic title, statement-count bounds, mandatory surfacing."""
+    issues: list[BriefIssue] = []
+    expected = brief_title(packet)
+    if brief.title != expected:
+        issues.append(_issue("TITLE_NOT_DETERMINISTIC", None,
+                             f"title must be exactly '{expected}'; titles are generated from packet metadata"))
+    n, bounds = len(brief.statements), packet.statement_bounds
+    if not bounds.min <= n <= bounds.max:
+        issues.append(_issue("STATEMENT_COUNT_OUT_OF_RANGE", None,
+                             f"brief has {n} statements; {bounds.min} to {bounds.max} are allowed"))
+    lims = [s for s in brief.statements if s.kind is StatementKind.limitation]
+    sp = packet.surfacing_policy
+    required = (
+        [(r, "reconciliation_ids", "reconciliation") for r in sp.mandatory_reconciliation_ids]
+        + [(g, "flag_ids", "disclosure gap") for g in sp.mandatory_disclosure_gap_ids]
+        + [(c, "comparability_note_ids", "comparability limitation") for c in sp.mandatory_comparability_note_ids]
+    )
+    for subject, field, label in required:
+        if not any(subject in getattr(s, field) for s in lims):
+            issues.append(_issue("MISSING_MANDATORY_LIMITATION", None,
+                                 f"{label} {subject} is designated mandatory by policy; a limitation must cite it "
+                                 f"in {field}", subject))
+    return issues
+
+
 def validate_brief(packet: BriefPacket, brief: ExecutiveBrief) -> BriefValidationResult:
     meta = brief.validation_metadata
     pre: list[BriefIssue] = []
@@ -466,7 +492,7 @@ def validate_brief(packet: BriefPacket, brief: ExecutiveBrief) -> BriefValidatio
         pre.append(_issue("PACKET_HASH_MISMATCH", None,
                           "brief was written against a different packet version", meta.packet_hash))
     result = validate_statements(packet, brief.statements)
-    errors = pre + result.errors
+    errors = pre + result.errors + _check_brief_policy(packet, brief)
     return BriefValidationResult(valid=not errors, errors=errors)
 
 
@@ -476,11 +502,15 @@ def validate_brief_payload(packet: BriefPacket, payload: dict | str) -> BriefVal
         brief = (ExecutiveBrief.model_validate_json(payload) if isinstance(payload, str)
                  else ExecutiveBrief.model_validate(payload))
     except ValidationError as exc:
-        errors = []
-        for err in exc.errors():
-            loc = ".".join(str(p) for p in err["loc"])
-            code = ("MISSING_PACKET_HASH" if loc == "validation_metadata.packet_hash" and err["type"] == "missing"
-                    else "SCHEMA_INVALID")
-            errors.append(BriefIssue(code=code, message=f"{loc}: {err['msg']}"))
-        return BriefValidationResult(valid=False, errors=errors)
+        return BriefValidationResult(valid=False, errors=schema_issues(exc))
     return validate_brief(packet, brief)
+
+
+def schema_issues(exc: ValidationError) -> list[BriefIssue]:
+    errors = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err["loc"])
+        code = ("MISSING_PACKET_HASH" if loc == "validation_metadata.packet_hash" and err["type"] == "missing"
+                else "SCHEMA_INVALID")
+        errors.append(BriefIssue(code=code, message=f"{loc}: {err['msg']}" if loc else err["msg"]))
+    return errors

@@ -4,6 +4,17 @@
   "period": "Q2 2026",
   "scope": "Construction Industries",
   "material_flags": ["mixed_basis", "non_comparable", "directional", "upper_bound", "scope_period_inferred", "restatement_untested"],
+  "statement_count": {"min": 5, "max": 12},
+  "surfacing_policy": {
+    "mandatory_reconciliation_ids": ["R03", "R04", "R05"],
+    "mandatory_disclosure_gap_ids": ["G04", "G05", "G06", "G07"],
+    "mandatory_comparability_note_ids": ["CN06"],
+    "conditional_narrative_ids": ["N03", "N06", "N09", "N13", "N14", "N15"]
+  },
+  "terminology": {
+    "workbook_distortion_formula": "derived_distortion_method",
+    "workbook-method": "derived-method"
+  },
   "comparability_notes": [
     {"id": "CN01", "subject_ids": ["S21", "S22", "D07", "D08"], "text": "CI retail sales growth is reported in price-neutral dollars based on dealer-reported unit sales and is disclosed only to the whole percent, so any gap measured against it carries up to half a point of rounding uncertainty."},
     {"id": "CN02", "subject_ids": ["D07", "D08"], "text": "The adjusted reported-versus-retail gap is a directional and relative indicator of dealer stocking, not a dollar measure of dealer inventory."},

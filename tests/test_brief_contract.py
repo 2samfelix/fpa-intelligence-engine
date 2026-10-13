@@ -24,7 +24,7 @@ EXPECTED_REJECTIONS = {
     "invalid_07_na_relationship_additive.json": {"NA_RELATIONSHIP_AS_ADDITIVE"},
     "invalid_08_stale_343_bps.json": {"FORBIDDEN_VALUE"},
     "invalid_09_stale_570_bps.json": {"FORBIDDEN_VALUE"},
-    "invalid_10_missing_r04_limitation.json": {"MISSING_RECONCILIATION_LIMITATION"},
+    "invalid_10_missing_r04_limitation.json": {"MISSING_RECONCILIATION_LIMITATION", "MISSING_MANDATORY_LIMITATION"},
     "invalid_11_omitted_disclosure_gap.json": {"MISSING_DISCLOSURE_GAP"},
     "invalid_12_missing_premises.json": {"MISSING_PREMISES"},
     "invalid_13_derived_as_disclosed.json": {"DERIVED_PRESENTED_AS_DISCLOSED"},
@@ -133,9 +133,11 @@ def test_demo_can_dump_the_packet(tmp_path, capsys):
 
 
 def test_no_llm_integration_in_package():
+    # Gate C: the provider SDK is an optional extra and may be imported only by fpa_engine/llm.py.
     pyproject = (PACKAGE.parent / "pyproject.toml").read_text()
     deps = re.search(r"^dependencies = \[(.*?)\]", pyproject, re.M).group(1)
     assert deps.strip() == '"pydantic>=2,<3"'
     pattern = re.compile(r"^\s*(?:import|from)\s+(anthropic|openai|httpx|requests|langchain)\b", re.M)
     for path in PACKAGE.rglob("*.py"):
-        assert not pattern.search(path.read_text()), path.name
+        if path.name != "llm.py":
+            assert not pattern.search(path.read_text()), path.name
