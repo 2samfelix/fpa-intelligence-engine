@@ -124,7 +124,7 @@ def test_timeout_through_the_flow_returns_provider_error(packet):
 
 def test_provider_sdk_is_isolated_to_llm_module():
     pattern = re.compile(r"^\s*(?:import|from)\s+(anthropic|openai|httpx2?|requests|langchain|llama_index)\b", re.M)
-    importers = {p.name for p in PACKAGE.rglob("*.py") if pattern.search(p.read_text())}
+    importers = {p.name for p in PACKAGE.rglob("*.py") if pattern.search(p.read_text(encoding="utf-8"))}
     assert importers == {"llm.py"}
 
 

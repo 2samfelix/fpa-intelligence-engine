@@ -16,7 +16,7 @@ CURRENT_HASH = "96fda5218790e13c4515bd63fc44bbd5e7c983fbbdf67b8ecbde312817a579bb
 
 
 def _valid_brief() -> ExecutiveBrief:
-    return ExecutiveBrief.model_validate(json.loads((fixture_dir() / "valid_brief.json").read_text()))
+    return ExecutiveBrief.model_validate(json.loads((fixture_dir() / "valid_brief.json").read_text(encoding="utf-8")))
 
 
 def _validate(packet, brief):

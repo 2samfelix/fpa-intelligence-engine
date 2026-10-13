@@ -32,7 +32,7 @@ T0 = datetime(2026, 10, 12, tzinfo=timezone.utc)
 
 def _fixture(name: str) -> dict:
     """A B2 fixture in model-output shape: statements and metadata only (the model never writes the title)."""
-    brief = json.loads((FIXTURES / name).read_text())
+    brief = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
     del brief["title"]
     brief["validation_metadata"]["author"] = PROMPT_VERSION
     return brief
@@ -95,7 +95,7 @@ def test_prompt_excludes_raw_sources_workbook_material_and_answers(packet, bench
         if src.excerpt and not any(src.excerpt == q for q in quotes):
             assert src.excerpt not in prompt, f"raw excerpt of {src.id} leaked"
     for path in FIXTURES.glob("*.json"):
-        for s in json.loads(path.read_text())["statements"]:
+        for s in json.loads(path.read_text(encoding="utf-8"))["statements"]:
             assert s["text"] not in prompt, f"fixture text from {path.name} leaked"
     assert "workbook" not in system.lower()
 
