@@ -28,7 +28,7 @@ from fpa_engine.brief import (
 from fpa_engine.brief_validator import BriefIssue, BriefValidationResult, schema_issues, validate_brief
 from fpa_engine.schemas import StrictModel
 
-PROMPT_VERSION = "synthesis_v2"
+PROMPT_VERSION = "synthesis_v2_1"
 MAX_ATTEMPTS = 2  # one initial attempt plus at most one corrective retry
 AUTHOR = PROMPT_VERSION
 

@@ -366,7 +366,7 @@ def test_every_attempt_is_logged_without_secrets(packet, valid, caplog, monkeypa
     assert [e["event"] for e in events] == ["synthesis_attempt", "synthesis_attempt", "synthesis_result"]
     for e in events:
         assert e["model"] == "mock-deterministic" and e["packet_hash"] == packet.packet_hash
-        assert e["prompt_version"] == "synthesis_v2" and e["timestamp"] == T0.isoformat()
+        assert e["prompt_version"] == "synthesis_v2_1" and e["timestamp"] == T0.isoformat()
     assert [e.get("attempt") for e in events[:2]] == [1, 2]
     assert events[0]["validation"] == "REJECTED" and events[0]["error_codes"] == ["PACKET_HASH_MISMATCH"]
     assert events[2]["validation"] == "ACCEPTED" and events[2]["attempt_count"] == 2

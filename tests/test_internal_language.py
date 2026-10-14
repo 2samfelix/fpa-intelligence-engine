@@ -149,6 +149,12 @@ def test_audit_metadata_is_kept_internally(packet):
     assert all(f.id for f in packet.facts) and packet.assumption_map["AS01"]
 
 
+def test_revised_prompt_has_its_own_version():
+    """The Step 3 prompt text differs from synthesis_v2; synthesis_v3 is reserved for the full Gate C4 contract."""
+    from fpa_engine import gate_c2
+    assert PROMPT_VERSION == gate_c2.EXPECTED_PROMPT_VERSION == "synthesis_v2_1"
+
+
 def test_prompt_no_longer_invites_pipeline_narration():
     assert "estimate was excluded" not in SYSTEM_PROMPT
     assert "packet IDs are not quantitative claims and may be used" not in SYSTEM_PROMPT
