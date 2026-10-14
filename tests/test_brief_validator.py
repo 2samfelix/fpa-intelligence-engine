@@ -176,11 +176,14 @@ def test_negated_completion_language_is_not_a_reconciliation_claim(packet):
 
 
 def test_review_and_assumption_dependencies_need_limitations(packet):
-    interp = st("A", "interpretive", "Demand appears to have shifted toward end users.", premise_ids=["N03"])
-    assert codes(packet, interp) == {"MISSING_REVIEW_LIMITATION"}
-    inherited = st("A", "interpretive", "Growth composition appears to have improved.", premise_ids=["N15"])
-    assert codes(packet, inherited) == {"MISSING_REVIEW_LIMITATION"}
-    covered = st("L", "limitation", "Driver-order reading is an assumption.", evidence_ids=["N03"])
+    interp = st("A", "interpretive", "We read this as consistent with a shift toward end users.", premise_ids=["N03"],
+                assumption_ids=["AS01"])
+    assert codes(packet, interp) == {"MISSING_REVIEW_LIMITATION", "MISSING_ASSUMPTION_LIMITATION"}
+    inherited = st("A", "interpretive", "Growth composition is consistent with improvement.", premise_ids=["N15"],
+                   assumption_ids=["AS01"])
+    assert codes(packet, inherited) == {"MISSING_REVIEW_LIMITATION", "MISSING_ASSUMPTION_LIMITATION"}
+    covered = st("L", "limitation", "Driver-order reading is an unsourced assumption.", evidence_ids=["N03"],
+                 assumption_ids=["AS01"])
     assert codes(packet, inherited, covered) == set()
 
 

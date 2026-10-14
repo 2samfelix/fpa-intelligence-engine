@@ -63,6 +63,14 @@ class EvidenceType(str, Enum):
     interpretive = "interpretive"
 
 
+class AssumptionSourcing(str, Enum):
+    unsourced = "unsourced"
+
+
+class AssumptionUse(str, Enum):
+    interpretive_only = "interpretive_only"
+
+
 class ReviewStatus(str, Enum):
     validated = "validated"
     needs_review = "needs_review"
@@ -172,7 +180,7 @@ class NarrativeEvidence(StrictModel):
     period: str
     related_fact_ids: list[str] = Field(default_factory=list)
     premise_ids: list[str] = Field(default_factory=list)
-    assumptions: list[str] = Field(default_factory=list)
+    assumption_ids: list[str] = Field(default_factory=list)
     counter_evidence_ids: list[str] = Field(default_factory=list)
     review_status: ReviewStatus
 
@@ -181,11 +189,23 @@ class NarrativeEvidence(StrictModel):
         if self.evidence_type is EvidenceType.explicit:
             if self.review_status is ReviewStatus.validated and not self.verbatim_quote:
                 raise ValueError(f"{self.id}: validated explicit evidence needs a verbatim quote")
-            if self.assumptions:
+            if self.assumption_ids:
                 raise ValueError(f"{self.id}: explicit evidence cannot rest on assumptions")
         if self.evidence_type is EvidenceType.interpretive and not self.premise_ids:
             raise ValueError(f"{self.id}: interpretive evidence must cite its premises")
         return self
+
+
+class AnalyticalAssumption(StrictModel):
+    """An analytical premise that no cited source states. Narratives reference it by ID; provenance (where the
+    premise came from) stays in the benchmark and never reaches the brief packet."""
+    id: str = Field(pattern=ID_PATTERN)
+    text: str = Field(min_length=1)
+    sourcing: AssumptionSourcing
+    introduced_by: str
+    allowed_use: AssumptionUse
+    must_disclose: bool
+    provenance: str | None = None
 
 
 class BridgeDefinition(StrictModel):

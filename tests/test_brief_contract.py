@@ -19,7 +19,7 @@ EXPECTED_REJECTIONS = {
     "invalid_02_unknown_evidence_id.json": {"UNKNOWN_EVIDENCE_ID"},
     "invalid_03_unsupported_number.json": {"UNSUPPORTED_NUMBER"},
     "invalid_04_arithmetic_in_prose.json": {"ARITHMETIC_IN_PROSE"},
-    "invalid_05_interpretive_as_explicit.json": {"INTERPRETIVE_AS_EXPLICIT"},
+    "invalid_05_interpretive_as_explicit.json": {"INTERPRETIVE_AS_EXPLICIT", "ASSUMPTION_AS_FACT"},
     "invalid_06_unresolved_as_reconciled.json": {"UNRESOLVED_PRESENTED_AS_RECONCILED"},
     "invalid_07_na_relationship_additive.json": {"NA_RELATIONSHIP_AS_ADDITIVE"},
     "invalid_08_stale_343_bps.json": {"FORBIDDEN_VALUE"},

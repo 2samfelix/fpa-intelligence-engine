@@ -152,7 +152,7 @@ def _check_narratives(bm: Benchmark, facts: dict[str, FinancialFact], issues: li
             elif not any(n.verbatim_quote in e for e in excerpts):
                 issues.append(_issue(Severity.error, "QUOTE_NOT_IN_SOURCE", n.id,
                                      "explicit quote is not an exact substring of any cited source excerpt"))
-        if n.evidence_type is EvidenceType.explicit and n.assumptions:
+        if n.evidence_type is EvidenceType.explicit and n.assumption_ids:
             issues.append(_issue(Severity.error, "EXPLICIT_WITH_ASSUMPTIONS", n.id,
                                  "explicit evidence cannot rest on assumptions; label it interpretive"))
         if n.review_status is ReviewStatus.needs_review:

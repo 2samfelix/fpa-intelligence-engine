@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from fpa_engine.schemas import (
+    AnalyticalAssumption,
     BridgeDefinition,
     DisclosureGap,
     FinancialFact,
@@ -42,6 +43,7 @@ class Benchmark:
     gaps: tuple[DisclosureGap, ...] = ()
     narratives: tuple[NarrativeEvidence, ...] = ()
     bridges: tuple[BridgeDefinition, ...] = ()
+    assumptions: tuple[AnalyticalAssumption, ...] = ()
     expected: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -108,6 +110,7 @@ def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
     gaps = _parse_list(DisclosureGap, fact_doc.get("known_gaps", []), "gap", problems)
     narratives = _parse_list(NarrativeEvidence, raw.get("narratives", []), "narrative", problems)
     bridges = _parse_list(BridgeDefinition, raw.get("bridges", []), "bridge", problems)
+    assumptions = _parse_list(AnalyticalAssumption, raw.get("assumptions", []), "assumption", problems)
 
     for f in sourced:
         if f.origin is not Origin.sourced:
@@ -116,7 +119,7 @@ def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
         if f.origin is not Origin.derived:
             problems.append(f"fact {f.id}: listed under 'derived' but origin is {f.origin.value}")
 
-    all_ids = [o.id for group in (sources, sourced, derived, gaps, narratives, bridges) for o in group]
+    all_ids = [o.id for group in (sources, sourced, derived, gaps, narratives, bridges, assumptions) for o in group]
     for dup, n in Counter(all_ids).items():
         if n > 1:
             problems.append(f"duplicate id {dup} ({n} occurrences)")
@@ -134,6 +137,16 @@ def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
         for sid in n.source_ids:
             if sid not in source_ids:
                 problems.append(f"narrative {n.id}: unresolved source reference {sid}")
+    assumption_ids = {a.id for a in assumptions}
+    narrative_map = {n.id: n for n in narratives}
+    for n in narratives:
+        for aid in n.assumption_ids:
+            if aid not in assumption_ids:
+                problems.append(f"narrative {n.id}: unresolved assumption reference {aid}")
+    for a in assumptions:
+        introducer = narrative_map.get(a.introduced_by)
+        if introducer is None or a.id not in introducer.assumption_ids:
+            problems.append(f"assumption {a.id}: introduced_by {a.introduced_by} must be a narrative that lists it")
 
     if problems:
         raise BenchmarkLoadError(problems)
@@ -144,6 +157,7 @@ def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
         gaps=tuple(gaps),
         narratives=tuple(narratives),
         bridges=tuple(bridges),
+        assumptions=tuple(assumptions),
         expected=raw.get("expected", {}),
     )
 
@@ -162,6 +176,7 @@ def read_raw(directory: Path) -> dict[str, Any]:
         "facts": read("facts.json"),
         "narratives": read("narratives.json"),
         "bridges": read("bridges.json"),
+        "assumptions": read("assumptions.json"),
         "expected": read("expected.json"),
     }
 

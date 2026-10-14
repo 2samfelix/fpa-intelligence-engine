@@ -185,7 +185,7 @@ def test_hash_mismatch_fails(packet, valid):
     ("invalid_03_unsupported_number.json", {"UNSUPPORTED_NUMBER"}),
     ("invalid_04_arithmetic_in_prose.json", {"ARITHMETIC_IN_PROSE"}),
     ("invalid_08_stale_343_bps.json", {"FORBIDDEN_VALUE"}),
-    ("invalid_05_interpretive_as_explicit.json", {"INTERPRETIVE_AS_EXPLICIT"}),
+    ("invalid_05_interpretive_as_explicit.json", {"INTERPRETIVE_AS_EXPLICIT", "ASSUMPTION_AS_FACT"}),
 ])
 def test_contract_violations_are_rejected(packet, name, codes):
     result, _ = _run(packet, _fixture(name), max_attempts=1)
@@ -274,7 +274,7 @@ def test_irrelevant_review_flags_are_not_forced(packet, valid):
 def test_relied_on_review_evidence_requires_a_limitation(packet, valid):
     valid["statements"] = [s for s in valid["statements"] if s["id"] != "V6"]
     result, _ = _run(packet, valid, max_attempts=1)
-    assert _codes(result) == {("MISSING_REVIEW_LIMITATION", "N03")}
+    assert _codes(result) == {("MISSING_REVIEW_LIMITATION", "N03"), ("MISSING_ASSUMPTION_LIMITATION", "AS01")}
 
 
 # ---------------------------------------------------------------- retry ---

@@ -18,7 +18,7 @@ from fpa_engine.brief import (
     brief_title,
     round_to_step,
 )
-from fpa_engine.schemas import BridgeType, EvidenceType, ReconciliationStatus, StrictModel
+from fpa_engine.schemas import AssumptionUse, BridgeType, EvidenceType, ReconciliationStatus, StrictModel
 
 HUNDRED = Decimal("100")
 EPSILON = Decimal("1e-9")
@@ -43,7 +43,7 @@ _NON_QUANTITATIVE = [
 
 INTERPRETIVE_MARKERS = re.compile(
     r"\b(suggest\w*|appear\w*|likely|indicat\w*|impl(?:y|ies|ied)|consistent with|may|might|could"
-    r"|points? to|seem\w*|interpret\w*|infer\w*|in our view)\b", re.I)
+    r"|points? to|seem\w*|interpret\w*|infer\w*|in our view|we read)\b", re.I)
 DIRECTIONAL_QUALIFIERS = re.compile(
     r"\b(directional(?:ly)?|implied|indicative|not comparable|non-comparable|approximate|direction)\b", re.I)
 COMPLETION_LANGUAGE = re.compile(
@@ -258,6 +258,9 @@ class _Context:
         self.recs = packet.reconciliation_map
         self.flags = packet.flag_map
         self.notes = {n.id for n in packet.comparability_notes}
+        self.assumptions = packet.assumption_map
+        markers = packet.inference_policy.assumption_inference_markers
+        self.inference_framing = re.compile(r"\b(?:" + "|".join(re.escape(m) for m in markers) + r")\b", re.I)
 
     def narrative_chain(self, nid: str) -> set[str]:
         chain, pending = set(), [nid]
@@ -295,6 +298,10 @@ def _check_references(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]
     for gid in s.flag_ids:
         if gid not in ctx.flags:
             errors.append(_issue("UNKNOWN_FLAG_ID", s, f"open flag {gid} is not in the packet", gid))
+            known = False
+    for aid in s.assumption_ids:
+        if aid not in ctx.assumptions:
+            errors.append(_issue("UNKNOWN_ASSUMPTION_ID", s, f"assumption {aid} is not in the packet", aid))
             known = False
     for cid in s.comparability_note_ids:
         if cid not in ctx.notes:
@@ -337,6 +344,38 @@ def _cited_facts(s: BriefStatement, ctx: _Context) -> list[PacketFact]:
 
 def _cited_narratives(s: BriefStatement, ctx: _Context) -> list[str]:
     return list(dict.fromkeys([*s.evidence_ids, *[p for p in s.premise_ids if p in ctx.narratives]]))
+
+
+def assumption_dependencies(s: BriefStatement, ctx: _Context) -> set[str]:
+    """Assumptions the statement rests on: those of every narrative it cites (evidence or premise) and of every
+    narrative in their premise chains. Derived from references only, never from prose."""
+    return {a for nid in _cited_narratives(s, ctx) for chained in ctx.narrative_chain(nid)
+            for a in ctx.narratives[chained].assumption_ids}
+
+
+def _used_assumptions(s: BriefStatement, ctx: _Context) -> set[str]:
+    return assumption_dependencies(s, ctx) | set(s.assumption_ids)
+
+
+def _check_assumptions(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
+    if s.kind is StatementKind.limitation:
+        return
+    required = assumption_dependencies(s, ctx)
+    for aid in sorted(required - set(s.assumption_ids)):
+        errors.append(_issue("HIDDEN_ASSUMPTION", s,
+                             f"the statement's premises rest on {aid} ({ctx.assumptions[aid].text}); list it in "
+                             f"assumption_ids", aid))
+    for aid in sorted(_used_assumptions(s, ctx)):
+        a = ctx.assumptions[aid]
+        if a.allowed_use is AssumptionUse.interpretive_only and s.kind is not StatementKind.interpretive:
+            errors.append(_issue("ASSUMPTION_AS_FACT", s,
+                                 f"{aid} is {a.sourcing.value} and may support only an interpretive statement, "
+                                 f"not a {s.kind.value} statement", aid))
+        elif (s.kind is StatementKind.interpretive and (a.must_disclose or a.sourcing.value == "unsourced")
+              and not ctx.inference_framing.search(s.text)):
+            errors.append(_issue("MISSING_ASSUMPTION_DISCLOSURE", s,
+                                 f"the statement rests on {a.sourcing.value} assumption {aid}; frame it in the "
+                                 f"statement itself as inference (for example 'we read', 'consistent with')", aid))
 
 
 def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
@@ -437,6 +476,7 @@ def _check_coverage(statements: list[BriefStatement], ctx: _Context, errors: lis
     lim_narr = {i for s in lims for i in [*s.evidence_ids, *s.premise_ids]}
     lim_recs = {i for s in lims for i in s.reconciliation_ids}
     lim_flags = {i for s in lims for i in s.flag_ids}
+    lim_assumptions = {i for s in lims for i in s.assumption_ids}
     reported: set[tuple[str, str]] = set()
 
     def report(code: str, s: BriefStatement, subject: str, message: str) -> None:
@@ -473,6 +513,10 @@ def _check_coverage(statements: list[BriefStatement], ctx: _Context, errors: lis
             if problems and not ({nid} | problems) & lim_narr:
                 report("MISSING_REVIEW_LIMITATION", s, nid,
                        f"{nid} depends on review-required or assumption-based evidence ({', '.join(sorted(problems))})")
+        for aid in sorted(_used_assumptions(s, ctx)):
+            if ctx.assumptions[aid].must_disclose and aid not in lim_assumptions:
+                report("MISSING_ASSUMPTION_LIMITATION", s, aid,
+                       f"{aid} is {ctx.assumptions[aid].sourcing.value}; add a limitation citing it in assumption_ids")
         touched = cited | involved
         for flag in ctx.packet.open_flags:
             if flag.kind.value == "disclosure_gap" and set(flag.related_ids) & touched and flag.id not in lim_flags:
@@ -494,6 +538,7 @@ def validate_statements(packet: BriefPacket, statements: list[BriefStatement]) -
     for s in statements:
         if _check_references(s, ctx, errors):
             _check_kind(s, ctx, errors)
+            _check_assumptions(s, ctx, errors)
             _check_numbers(s, ctx, errors)
             _check_semantics(s, ctx, errors)
             resolvable.append(s)

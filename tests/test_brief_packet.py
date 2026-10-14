@@ -40,7 +40,8 @@ def test_packet_counts(packet):
 def _free_text(packet) -> list[str]:
     texts = [n.text for n in packet.comparability_notes]
     for n in packet.narratives:
-        texts += [n.claim, n.verbatim_quote or "", *n.assumptions, *n.inherited_assumptions]
+        texts += [n.claim, n.verbatim_quote or ""]
+    texts += [a.text for a in packet.assumptions]
     texts += [f.message for f in packet.open_flags]
     texts += [fv.reason for fv in packet.forbidden_values]
     return texts
@@ -121,7 +122,7 @@ def test_disclosure_gaps_and_review_narratives_surface_as_open_flags(packet):
     for nid in ("N03", "N06", "N09", "N13", "N14", "N15"):
         assert f"RV-{nid}" in flags
     n15 = packet.narrative_map["N15"]
-    assert n15.inherited_assumptions and n15.requires_limitation
+    assert n15.inherited_assumption_ids == ["AS01"] and n15.requires_limitation
 
 
 def test_forbidden_values_cover_gate_b1_rejections(packet, expected):

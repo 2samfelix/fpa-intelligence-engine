@@ -18,6 +18,8 @@ from fpa_engine.loader import BENCHMARK_ROOT, Benchmark, load_benchmark
 from fpa_engine.pipeline import ValidationFailed, run
 from fpa_engine.schemas import (
     ID_PATTERN,
+    AssumptionSourcing,
+    AssumptionUse,
     BridgeType,
     CalcStatus,
     EvidenceType,
@@ -99,11 +101,22 @@ class PacketNarrative(StrictModel):
     source_ids: list[str] = Field(default_factory=list)
     related_fact_ids: list[str] = Field(default_factory=list)
     premise_ids: list[str] = Field(default_factory=list)
-    assumptions: list[str] = Field(default_factory=list)
-    inherited_assumptions: list[str] = Field(default_factory=list)
+    assumption_ids: list[str] = Field(default_factory=list)
+    inherited_assumption_ids: list[str] = Field(default_factory=list)
     counter_evidence_ids: list[str] = Field(default_factory=list)
     review_status: ReviewStatus
     requires_limitation: bool = False
+
+
+class PacketAssumption(StrictModel):
+    """An analytical premise no cited source states. Its sourcing status is structural, never prose that a
+    provenance filter could remove."""
+    id: str
+    text: str
+    sourcing: AssumptionSourcing
+    introduced_by: str
+    allowed_use: AssumptionUse
+    must_disclose: bool
 
 
 class PacketReconciliation(StrictModel):
@@ -178,6 +191,12 @@ class DisplayPolicy(StrictModel):
     approximation_markers: list[str] = Field(min_length=1)
 
 
+class InferencePolicy(StrictModel):
+    """Phrases that visibly frame a statement as the analyst's inference; a statement resting on an unsourced
+    assumption must use one in its own text."""
+    assumption_inference_markers: list[str] = Field(min_length=1)
+
+
 class StatementBounds(StrictModel):
     min: int = Field(ge=1)
     max: int = Field(ge=1)
@@ -195,9 +214,11 @@ class BriefPacket(StrictModel):
     surfacing_policy: SurfacingPolicy
     statement_bounds: StatementBounds
     display_policy: DisplayPolicy
+    inference_policy: InferencePolicy
     sources: list[PacketSource]
     facts: list[PacketFact]
     narratives: list[PacketNarrative]
+    assumptions: list[PacketAssumption]
     reconciliations: list[PacketReconciliation]
     comparability_notes: list[ComparabilityNote]
     open_flags: list[OpenFlag]
@@ -210,6 +231,10 @@ class BriefPacket(StrictModel):
     @property
     def narrative_map(self) -> dict[str, PacketNarrative]:
         return {n.id: n for n in self.narratives}
+
+    @property
+    def assumption_map(self) -> dict[str, PacketAssumption]:
+        return {a.id: a for a in self.assumptions}
 
     @property
     def reconciliation_map(self) -> dict[str, PacketReconciliation]:
@@ -243,6 +268,7 @@ class BriefStatement(StrictModel):
     evidence_ids: list[str] = Field(default_factory=list)
     reconciliation_ids: list[str] = Field(default_factory=list)
     premise_ids: list[str] = Field(default_factory=list)
+    assumption_ids: list[str] = Field(default_factory=list)
     flag_ids: list[str] = Field(default_factory=list)
     comparability_note_ids: list[str] = Field(default_factory=list)
     severity: StatementSeverity = StatementSeverity.info
@@ -377,6 +403,21 @@ def propagate_uncertainty(fid: str, facts: dict[str, FinancialFact], calcs: dict
     return cache[fid]
 
 
+def _packet_assumptions(bm: Benchmark, narratives: list[PacketNarrative]) -> list[PacketAssumption]:
+    """Every assumption a packet narrative uses, with its analytical text and sourcing status. Provenance stays
+    behind; text that points at the workbook blocks the build instead of being silently trimmed."""
+    used = {a for n in narratives for a in n.assumption_ids}
+    out = []
+    for a in sorted(bm.assumptions, key=lambda x: x.id):
+        if a.id not in used:
+            continue
+        if _WORKBOOK_REF.search(a.text):
+            raise PacketBuildError(f"ASSUMPTION_TEXT_INVALID: {a.id} text cites the workbook; move that to provenance")
+        out.append(PacketAssumption(id=a.id, text=a.text, sourcing=a.sourcing, introduced_by=a.introduced_by,
+                                    allowed_use=a.allowed_use, must_disclose=a.must_disclose))
+    return out
+
+
 def _display_policy(policy: dict[str, Any]) -> tuple[DisplayPolicy, dict[str, dict[str, Any]]]:
     raw = policy.get("display_policy")
     if raw is None:
@@ -488,15 +529,12 @@ def build_brief_packet(
 
     narratives_src = {n.id: n for n in bm.narratives if n.review_status is not ReviewStatus.rejected}
 
-    def clean(items: list[str]) -> list[str]:
-        return [c for c in (_strip_workbook_refs(i) for i in items) if c]
-
     def inherited(nid: str, seen: set[str]) -> list[str]:
         out: list[str] = []
         for p in narratives_src[nid].premise_ids:
             if p in narratives_src and p not in seen:
                 seen.add(p)
-                out += clean(narratives_src[p].assumptions) + inherited(p, seen)
+                out += list(narratives_src[p].assumption_ids) + inherited(p, seen)
         return out
 
     narratives = []
@@ -507,10 +545,12 @@ def build_brief_packet(
             id=n.id, topic=n.topic, claim=n.claim, evidence_type=n.evidence_type, verbatim_quote=n.verbatim_quote,
             speaker=n.speaker, source_kind=n.source_kind, scope=n.scope, period=n.period,
             source_ids=list(n.source_ids), related_fact_ids=[i for i in n.related_fact_ids if i in fact_ids],
-            premise_ids=list(n.premise_ids), assumptions=clean(n.assumptions), inherited_assumptions=inh,
+            premise_ids=list(n.premise_ids), assumption_ids=list(n.assumption_ids),
+            inherited_assumption_ids=[a for a in inh if a not in n.assumption_ids],
             counter_evidence_ids=list(n.counter_evidence_ids), review_status=n.review_status,
-            requires_limitation=n.review_status is ReviewStatus.needs_review or bool(n.assumptions or inh),
+            requires_limitation=n.review_status is ReviewStatus.needs_review or bool(n.assumption_ids or inh),
         ))
+    assumptions = _packet_assumptions(bm, narratives)
 
     reconciliations = []
     for r in sorted(result.reconciliations, key=lambda x: x.id):
@@ -570,7 +610,8 @@ def build_brief_packet(
         analysis_id=policy["analysis_id"], company=policy["company"], period=policy["period"],
         scope=policy["scope"], generated_at=generated_at or datetime.now(timezone.utc), packet_hash="",
         material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds,
-        display_policy=display_policy, sources=sources, facts=facts, narratives=narratives,
+        display_policy=display_policy, inference_policy=InferencePolicy.model_validate(policy["inference_policy"]),
+        sources=sources, facts=facts, narratives=narratives, assumptions=assumptions,
         reconciliations=reconciliations, comparability_notes=notes, open_flags=open_flags,
         forbidden_values=forbidden,
     )
