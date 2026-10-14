@@ -10,6 +10,8 @@ from pydantic import ValidationError
 
 from fpa_engine.brief import (
     BriefPacket,
+    CoverageAlternative,
+    CoverageRole,
     BriefStatement,
     ExecutiveBrief,
     ForbiddenValue,
@@ -575,6 +577,48 @@ def validate_statements(packet: BriefPacket, statements: list[BriefStatement]) -
     return BriefValidationResult(valid=not errors, errors=errors)
 
 
+def statement_references(s: BriefStatement, packet: BriefPacket) -> dict[str, set[str]]:
+    """The structured references a statement carries, grouped by entity type. Coverage reads only these."""
+    facts, narratives = {f.id for f in packet.facts}, {n.id for n in packet.narratives}
+    return {
+        "fact_ids": set(s.fact_ids) | {p for p in s.premise_ids if p in facts},
+        "reconciliation_ids": set(s.reconciliation_ids),
+        "narrative_ids": set(s.evidence_ids) | {p for p in s.premise_ids if p in narratives},
+        "assumption_ids": set(s.assumption_ids),
+    }
+
+
+def _covers(refs: dict[str, set[str]], alt: CoverageAlternative) -> bool:
+    return all(set(getattr(alt, field)) <= ids for field, ids in refs.items())
+
+
+def _describe_alternative(alt: CoverageAlternative) -> str:
+    parts = [f"{field} {' + '.join(getattr(alt, field))}" for field in
+             ("fact_ids", "reconciliation_ids", "narrative_ids", "assumption_ids") if getattr(alt, field)]
+    return " and ".join(parts)
+
+
+def covered_roles(packet: BriefPacket, statements: list[BriefStatement]) -> dict[str, list[str]]:
+    """Role -> IDs of the statements covering it. A statement may cover several roles; each role needs one
+    statement of an allowed kind that cites every ID of one alternative."""
+    out: dict[str, list[str]] = {}
+    refs = [(s, statement_references(s, packet)) for s in statements]
+    for role in packet.coverage_policy.roles:
+        if role.from_surfacing_policy:
+            continue
+        out[role.role] = [s.id for s, r in refs
+                          if s.kind in role.statement_kinds and any(_covers(r, alt) for alt in role.any_of)]
+    return out
+
+
+def _coverage_issue(role: CoverageRole) -> BriefIssue:
+    kinds = " or ".join(k.value for k in role.statement_kinds)
+    options = "; or ".join(_describe_alternative(a) for a in role.any_of)
+    return _issue("MISSING_REQUIRED_COVERAGE", None,
+                  f"required role '{role.role}' is not covered ({role.purpose}). Cover it with one {kinds} "
+                  f"statement whose reference fields include all of: {options}", role.role)
+
+
 def _check_brief_policy(packet: BriefPacket, brief: ExecutiveBrief) -> list[BriefIssue]:
     """Brief-level rules from the packet policy: deterministic title, statement-count bounds, mandatory surfacing."""
     issues: list[BriefIssue] = []
@@ -598,6 +642,9 @@ def _check_brief_policy(packet: BriefPacket, brief: ExecutiveBrief) -> list[Brie
             issues.append(_issue("MISSING_MANDATORY_LIMITATION", None,
                                  f"{label} {subject} is designated mandatory by policy; a limitation must cite it "
                                  f"in {field}", subject))
+    covered = covered_roles(packet, brief.statements)
+    roles = {r.role: r for r in packet.coverage_policy.roles}
+    issues += [_coverage_issue(roles[name]) for name, by in covered.items() if not by]
     return issues
 
 

@@ -69,6 +69,16 @@
       {"concept": "packet structures", "pattern": "\\bopen flags?\\b|\\bcomparability notes?\\b|\\bsurfacing policy\\b|\\bmandatory limitations?\\b|\\b(?:fact|evidence|narrative|premise|reconciliation|flag|assumption|statement)[ _-]ids?\\b"}
     ]
   },
+  "coverage_policy": {
+    "roles": [
+      {"role": "headline_evidence", "purpose": "the Q1 to Q2 2026 change in the disclosed CI dealer-inventory build", "statement_kinds": ["fact", "interpretive"], "any_of": [{"fact_ids": ["S23", "S25"]}]},
+      {"role": "demand_signal", "purpose": "a complete Q1 and Q2 2026 pair showing the change in end-user demand", "statement_kinds": ["fact", "interpretive"], "any_of": [{"fact_ids": ["S21", "S22"]}, {"fact_ids": ["D08", "D07"]}]},
+      {"role": "primary_reconciliation", "purpose": "a reconciled CI sales bridge as the operating foundation", "statement_kinds": ["fact", "interpretive"], "any_of": [{"reconciliation_ids": ["R01"]}, {"reconciliation_ids": ["R02"]}]},
+      {"role": "material_unresolved_item", "purpose": "the unresolved Q2 2026 CI segment profit bridge", "statement_kinds": ["fact", "interpretive", "limitation"], "any_of": [{"reconciliation_ids": ["R04"]}]},
+      {"role": "key_interpretation", "purpose": "the central reading that Q2 2026 growth leaned less on dealer restocking and more on end-user demand", "statement_kinds": ["interpretive"], "any_of": [{"narrative_ids": ["N15"]}]},
+      {"role": "mandatory_limitation", "purpose": "every limitation the surfacing policy designates mandatory", "statement_kinds": ["limitation"], "from_surfacing_policy": true}
+    ]
+  },
   "forbidden_values": [
     {"id": "FV01", "unit": "bps", "value": "343", "reason": "Stale rounding artifact for the Q2 2026 CI tariff impact; the disclosed figure is 340 bps."},
     {"id": "FV02", "unit": "bps", "value": "342.85", "reason": "The Q4 2025 and Q1 2026 distortion method re-applied to Q2 2026; not the disclosed 340 bps."},

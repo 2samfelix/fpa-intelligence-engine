@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from decimal import ROUND_CEILING, Decimal, localcontext
 from enum import Enum
-from itertools import product
+from itertools import combinations, product
 from pathlib import Path
 from typing import Any, Literal
 
@@ -51,6 +51,13 @@ class PacketBuildError(Exception):
 
 
 # ---------------------------------------------------------------- packet ---
+
+class StatementKind(str, Enum):
+    fact = "fact"
+    explicit_claim = "explicit_claim"
+    interpretive = "interpretive"
+    limitation = "limitation"
+
 
 class PacketSource(StrictModel):
     id: str
@@ -208,6 +215,33 @@ class ProsePolicy(StrictModel):
     internal_language: list[InternalTerm] = Field(min_length=1)
 
 
+class CoverageAlternative(StrictModel):
+    """One way to cover a role: a single statement whose reference fields include every listed ID."""
+    fact_ids: list[str] = Field(default_factory=list)
+    reconciliation_ids: list[str] = Field(default_factory=list)
+    narrative_ids: list[str] = Field(default_factory=list)
+    assumption_ids: list[str] = Field(default_factory=list)
+
+    def all_ids(self) -> list[str]:
+        return [*self.fact_ids, *self.reconciliation_ids, *self.narrative_ids, *self.assumption_ids]
+
+
+class CoverageRole(StrictModel):
+    """A piece of the analytical spine every brief must carry. Covered when one statement of an allowed kind cites
+    every ID of at least one alternative; a role linked to the surfacing policy is enforced by the mandatory-limitation
+    rule instead."""
+    role: str
+    purpose: str
+    statement_kinds: list[StatementKind] = Field(min_length=1)
+    any_of: list[CoverageAlternative] = Field(default_factory=list)
+    from_surfacing_policy: bool = False
+
+
+class CoveragePolicy(StrictModel):
+    roles: list[CoverageRole] = Field(min_length=1)
+    min_statement_slots: int
+
+
 class StatementBounds(StrictModel):
     min: int = Field(ge=1)
     max: int = Field(ge=1)
@@ -227,6 +261,7 @@ class BriefPacket(StrictModel):
     display_policy: DisplayPolicy
     inference_policy: InferencePolicy
     prose_policy: ProsePolicy
+    coverage_policy: CoveragePolicy
     sources: list[PacketSource]
     facts: list[PacketFact]
     narratives: list[PacketNarrative]
@@ -258,13 +293,6 @@ class BriefPacket(StrictModel):
 
 
 # ---------------------------------------------------------- brief output ---
-
-class StatementKind(str, Enum):
-    fact = "fact"
-    explicit_claim = "explicit_claim"
-    interpretive = "interpretive"
-    limitation = "limitation"
-
 
 class StatementSeverity(str, Enum):
     info = "info"
@@ -428,6 +456,107 @@ def _packet_assumptions(bm: Benchmark, narratives: list[PacketNarrative]) -> lis
         out.append(PacketAssumption(id=a.id, text=a.text, sourcing=a.sourcing, introduced_by=a.introduced_by,
                                     allowed_use=a.allowed_use, must_disclose=a.must_disclose))
     return out
+
+
+ALL_KINDS = frozenset(StatementKind)
+INTERPRETIVE_OR_LIMITATION = frozenset({StatementKind.interpretive, StatementKind.limitation})
+
+
+def legal_kinds(alt: CoverageAlternative, narratives: dict[str, PacketNarrative],
+                assumptions: dict[str, PacketAssumption]) -> frozenset[StatementKind]:
+    """Statement kinds that may legally cite every ID of the alternative together. Interpretive narratives and
+    interpretive-only assumptions can only sit under an interpretive statement or a limitation."""
+    kinds = ALL_KINDS
+    for nid in alt.narrative_ids:
+        if narratives[nid].evidence_type is EvidenceType.interpretive:
+            kinds &= INTERPRETIVE_OR_LIMITATION
+    for aid in alt.assumption_ids:
+        if assumptions[aid].allowed_use is AssumptionUse.interpretive_only:
+            kinds &= INTERPRETIVE_OR_LIMITATION
+    return kinds
+
+
+def minimum_statement_slots(achievable: list[frozenset[StatementKind]]) -> int:
+    """Fewest statements that can cover every role. Roles that share an achievable kind can be covered by one
+    statement of that kind (legality is per ID, so the union of their IDs stays legal), so the minimum is the smallest
+    set of kinds that meets every role's achievable kinds. Exact over the four statement kinds."""
+    kinds = sorted(ALL_KINDS, key=lambda k: k.value)
+    for size in range(1, len(kinds) + 1):
+        for chosen in combinations(kinds, size):
+            if all(a & set(chosen) for a in achievable):
+                return size
+    raise PacketBuildError("COVERAGE_INFEASIBLE: a role has no statement kind that can cover it")
+
+
+def _coverage_policy(policy: dict[str, Any], bounds: StatementBounds, surfacing: SurfacingPolicy,
+                     facts: list[PacketFact], narratives: list[PacketNarrative],
+                     reconciliations: list[PacketReconciliation],
+                     assumptions: list[PacketAssumption], unavailable: set[str] = frozenset()) -> CoveragePolicy:
+    """Validate the role policy against this packet and check that it can fit in the statement bounds. An
+    alternative naming a benchmark fact that could not be computed is dropped (the packet flags it unavailable);
+    any other unknown ID is a policy error, and a role left with no alternative is infeasible."""
+    raw = policy.get("coverage_policy")
+    if raw is None:
+        raise PacketBuildError("COVERAGE_POLICY_INVALID: brief policy has no coverage_policy")
+    try:
+        roles = [CoverageRole.model_validate(r) for r in raw["roles"]]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PacketBuildError(f"COVERAGE_POLICY_INVALID: {exc}") from exc
+    if not roles:
+        raise PacketBuildError("COVERAGE_POLICY_INVALID: no coverage roles")
+    known = {"fact_ids": {f.id for f in facts}, "reconciliation_ids": {r.id for r in reconciliations},
+             "narrative_ids": {n.id for n in narratives}, "assumption_ids": {a.id for a in assumptions}}
+    nmap, amap = {n.id: n for n in narratives}, {a.id: a for a in assumptions}
+    mandatory = [*surfacing.mandatory_reconciliation_ids, *surfacing.mandatory_disclosure_gap_ids,
+                 *surfacing.mandatory_comparability_note_ids]
+    problems, achievable, seen, pruned = [], [], set(), []
+    for role in roles:
+        label = role.role
+        if label in seen:
+            problems.append(f"{label}: duplicate role")
+        seen.add(label)
+        allowed = frozenset(role.statement_kinds)
+        if role.from_surfacing_policy:
+            if role.any_of:
+                problems.append(f"{label}: a surfacing-policy role takes no alternatives")
+            if not mandatory:
+                problems.append(f"{label}: the surfacing policy designates no mandatory limitation")
+            if StatementKind.limitation not in allowed:
+                problems.append(f"{label}: mandatory limitations can only be limitation statements")
+            achievable.append(allowed & {StatementKind.limitation})
+            pruned.append(role)
+            continue
+        if not role.any_of:
+            problems.append(f"{label}: no alternatives")
+        reach: set[StatementKind] = set()
+        kept = []
+        for i, alt in enumerate(role.any_of, 1):
+            if not alt.all_ids():
+                problems.append(f"{label}: alternative {i} is empty")
+                continue
+            if set(alt.fact_ids) & unavailable:
+                continue
+            unknown = [f"{field} {x}" for field, ids in known.items() for x in getattr(alt, field) if x not in ids]
+            if unknown:
+                problems.append(f"{label}: alternative {i} names IDs not in the packet: {', '.join(unknown)}")
+                continue
+            kinds = legal_kinds(alt, nmap, amap) & allowed
+            if not kinds:
+                problems.append(f"{label}: alternative {i} cannot legally be cited by any allowed statement kind "
+                                f"({', '.join(sorted(k.value for k in allowed))})")
+            reach |= kinds
+            kept.append(alt)
+        if role.any_of and not kept and not any(p.startswith(f"{label}:") for p in problems):
+            problems.append(f"{label}: every alternative names a fact this packet cannot compute")
+        pruned.append(role.model_copy(update={"any_of": kept}))
+        achievable.append(frozenset(reach))
+    if problems:
+        raise PacketBuildError("COVERAGE_POLICY_INVALID: " + "; ".join(problems))
+    slots = minimum_statement_slots(achievable)
+    if slots > bounds.max:
+        raise PacketBuildError(f"COVERAGE_INFEASIBLE: required coverage needs at least {slots} statements; "
+                               f"statement bounds allow {bounds.max}")
+    return CoveragePolicy(roles=pruned, min_statement_slots=slots)
 
 
 def _prose_policy(policy: dict[str, Any]) -> ProsePolicy:
@@ -627,13 +756,15 @@ def build_brief_packet(
     bounds = StatementBounds.model_validate(policy["statement_count"])
     if bounds.min > bounds.max:
         raise PacketBuildError(f"STATEMENT_BOUNDS_INVALID: min {bounds.min} > max {bounds.max}")
+    coverage = _coverage_policy(policy, bounds, surfacing, facts, narratives, reconciliations, assumptions,
+                                unavailable=set(unavailable))
 
     payload = dict(
         analysis_id=policy["analysis_id"], company=policy["company"], period=policy["period"],
         scope=policy["scope"], generated_at=generated_at or datetime.now(timezone.utc), packet_hash="",
         material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds,
         display_policy=display_policy, inference_policy=InferencePolicy.model_validate(policy["inference_policy"]),
-        prose_policy=_prose_policy(policy), sources=sources, facts=facts, narratives=narratives,
+        prose_policy=_prose_policy(policy), coverage_policy=coverage, sources=sources, facts=facts, narratives=narratives,
         assumptions=assumptions,
         reconciliations=reconciliations, comparability_notes=notes, open_flags=open_flags,
         forbidden_values=forbidden,

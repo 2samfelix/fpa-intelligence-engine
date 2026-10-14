@@ -228,13 +228,25 @@ def test_title_is_deterministic_and_carries_no_model_text(packet, benchmark, val
     assert result.brief.title == brief_title(packet)
 
 
+# One limitation carrying every limitation the valid brief's spine needs, so short briefs can stay valid.
+MERGED_LIMITATION = {
+    "id": "L1", "kind": "limitation",
+    "text": ("Retail growth is price-neutral and reported only to the whole percent, so the dealer-build and retail "
+             "figures support a directional reading only; reading the order in which management lists volume "
+             "drivers as a ranking by size is an unsourced assumption still under review; and the CI segment profit "
+             "bridges remain unresolved, with the prior-year comparative untested for restatement."),
+    "reconciliation_ids": ["NA01", "NA02", "R03", "R04", "R05"], "evidence_ids": ["N03"], "assumption_ids": ["AS01"],
+    "flag_ids": ["G04", "G05", "G06", "G07"], "comparability_note_ids": ["CN06"],
+}
+
+
 @pytest.mark.parametrize("keep", [4, 13])
 def test_statement_count_is_bounded(packet, valid, keep):
     by_id = {s["id"]: s for s in valid["statements"]}
     filler = {"kind": "limitation", "text": "Dealer-inventory dollars change scope between quarters.",
               "comparability_note_ids": ["CN04"]}
-    if keep == 4:  # two facts plus the two mandatory-surfacing limitations: valid apart from its length
-        valid["statements"] = [by_id[i] for i in ("V1", "V2", "V8", "V9")]
+    if keep == 4:  # the spine in three statements plus one filler: valid apart from its length
+        valid["statements"] = [by_id["V2"], by_id["V4"], MERGED_LIMITATION, {**filler, "id": "F0"}]
     else:
         valid["statements"] += [{**filler, "id": f"F{i}"} for i in range(keep - len(by_id))]
     assert len(valid["statements"]) == keep
@@ -248,7 +260,7 @@ def test_statement_count_bounds_are_inclusive(packet, valid, keep):
     by_id = {s["id"]: s for s in valid["statements"]}
     filler = {"kind": "limitation", "text": "Dealer-inventory dollars change scope between quarters.",
               "comparability_note_ids": ["CN04"]}
-    base = [by_id[i] for i in ("V1", "V2", "V8", "V9")] if keep == 5 else list(by_id.values())
+    base = [by_id["V2"], by_id["V4"], MERGED_LIMITATION] if keep == 5 else list(by_id.values())
     valid["statements"] = base + [{**filler, "id": f"F{i}"} for i in range(keep - len(base))]
     assert (packet.statement_bounds.min, packet.statement_bounds.max) == (5, 12)
     assert _run(packet, valid)[0].accepted
@@ -271,14 +283,14 @@ def test_forbidden_value_cannot_enter_through_a_limitation(packet, valid):
 def test_irrelevant_review_flags_are_not_forced(packet, valid):
     cited = {i for s in valid["statements"] for i in [*s.get("evidence_ids", []), *s.get("premise_ids", [])]}
     unused = set(packet.surfacing_policy.conditional_narrative_ids) - cited
-    assert unused == {"N06", "N09", "N13", "N14", "N15"}
+    assert unused == {"N06", "N09", "N13", "N14"}
     assert _run(packet, valid)[0].accepted
 
 
 def test_relied_on_review_evidence_requires_a_limitation(packet, valid):
     valid["statements"] = [s for s in valid["statements"] if s["id"] != "V6"]
     result, _ = _run(packet, valid, max_attempts=1)
-    assert _codes(result) == {("MISSING_REVIEW_LIMITATION", "N03"), ("MISSING_ASSUMPTION_LIMITATION", "AS01")}
+    assert _codes(result) == {("MISSING_REVIEW_LIMITATION", "N15"), ("MISSING_ASSUMPTION_LIMITATION", "AS01")}
 
 
 # ---------------------------------------------------------------- retry ---

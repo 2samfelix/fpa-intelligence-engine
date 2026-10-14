@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from fpa_engine.brief import BriefMetadata, BriefStatement, ExecutiveBrief, brief_title
+from fpa_engine.brief_demo import fixture_dir
 from fpa_engine.brief_validator import (
     UNIT_CONVERSIONS,
     extract_numbers,
@@ -201,9 +202,15 @@ MANDATORY = [
 ]
 
 
+# The analytical spine required by the coverage policy, taken from the valid brief fixture.
+SPINE = [{**s, "id": f"C{i}"} for i, s in enumerate(
+    (s for s in json.loads((fixture_dir() / "valid_brief.json").read_text(encoding="utf-8"))["statements"]
+     if s["id"] in ("V2", "V4", "V5", "V6")), 1)]
+
+
 def _payload(packet, statements, **meta) -> dict:
     metadata = {"analysis_id": packet.analysis_id, "packet_hash": packet.packet_hash, "author": "test", **meta}
-    return {"title": brief_title(packet), "statements": [*statements, *MANDATORY],
+    return {"title": brief_title(packet), "statements": [*statements, *MANDATORY, *SPINE],
             "validation_metadata": {k: v for k, v in metadata.items() if v is not None}}
 
 
@@ -244,7 +251,7 @@ def test_payload_validation_accepts_json_text(packet):
 
 
 def test_brief_objects_must_carry_the_hash(packet):
-    statements = [BriefStatement.model_validate(s) for s in [*SIMPLE, *MANDATORY]]
+    statements = [BriefStatement.model_validate(s) for s in [*SIMPLE, *MANDATORY, *SPINE]]
     brief = ExecutiveBrief(title=brief_title(packet), statements=statements,
                            validation_metadata=BriefMetadata(analysis_id=packet.analysis_id,
                                                              packet_hash=packet.packet_hash, author="test"))
