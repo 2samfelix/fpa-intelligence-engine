@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from fpa_engine.brief import BriefMetadata, BriefStatement, ExecutiveBrief
+from fpa_engine.brief import BriefMetadata, BriefStatement, ExecutiveBrief, brief_title
 from fpa_engine.brief_validator import (
     UNIT_CONVERSIONS,
     extract_numbers,
@@ -76,11 +76,20 @@ def test_disclosed_rounded_figure_is_not_a_forbidden_back_solve(packet):
     assert "FORBIDDEN_VALUE" not in codes(packet, statement)
 
 
-def test_forbidden_value_allowed_only_in_a_rejecting_limitation(packet):
-    rejecting = st("L", "limitation", "The 343 bps figure is a stale artifact and should not be used.", fact_ids=["S29"])
-    assert codes(packet, rejecting) == set()
-    plain = st("L", "limitation", "The Q2 2026 tariff impact was 343 bps.", fact_ids=["S29"])
-    assert codes(packet, plain) == {"FORBIDDEN_VALUE"}
+@pytest.mark.parametrize("text", [
+    "The 343 bps figure is a stale artifact and should not be used.",
+    "A rejected 342.85 bps estimate was superseded.",
+    "The 570 bps plug is not a measured attribution.",
+    "An unsupported $100–150M estimate was excluded.",
+    "The back-solved $3,113M volume is not a disclosed figure.",
+])
+def test_forbidden_values_are_rejected_even_in_limitations(packet, text):
+    assert codes(packet, st("L", "limitation", text, fact_ids=["S29"])) == {"FORBIDDEN_VALUE"}
+
+
+def test_limitation_may_mention_an_excluded_estimate_without_its_value(packet):
+    s = st("L", "limitation", "A stale prior estimate was excluded from the validated analysis.", fact_ids=["S29"])
+    assert codes(packet, s) == set()
 
 
 def test_explicit_claim_numbers_must_come_from_the_quote_or_facts(packet):
@@ -174,9 +183,22 @@ def test_review_and_assumption_dependencies_need_limitations(packet):
     assert codes(packet, inherited, covered) == set()
 
 
+# Numberless limitations that satisfy the packet's mandatory-surfacing policy and the 5-statement minimum.
+MANDATORY = [
+    {"id": "M1", "kind": "limitation", "text": "The CI segment profit bridges remain unresolved.",
+     "reconciliation_ids": ["R03", "R04", "R05"], "flag_ids": ["G04", "G05", "G06"]},
+    {"id": "M2", "kind": "limitation", "text": "The prior-year CI profit comparative has not been tested for restatement.",
+     "flag_ids": ["G07"], "comparability_note_ids": ["CN06"]},
+    {"id": "M3", "kind": "limitation", "text": "Dealer-inventory dollars change scope between quarters.",
+     "comparability_note_ids": ["CN04"]},
+    {"id": "M4", "kind": "limitation", "text": "Price realization is one item in two bridges.",
+     "comparability_note_ids": ["CN12"]},
+]
+
+
 def _payload(packet, statements, **meta) -> dict:
     metadata = {"analysis_id": packet.analysis_id, "packet_hash": packet.packet_hash, "author": "test", **meta}
-    return {"title": "t", "statements": statements,
+    return {"title": brief_title(packet), "statements": [*statements, *MANDATORY],
             "validation_metadata": {k: v for k, v in metadata.items() if v is not None}}
 
 
@@ -201,7 +223,7 @@ def test_missing_packet_hash_is_rejected(packet):
         BriefMetadata(analysis_id=packet.analysis_id, author="test")
 
 
-@pytest.mark.parametrize("stale", ["0" * 64, "9a07a9113b5847ba" + "0" * 48])
+@pytest.mark.parametrize("stale", ["0" * 64, "9a07a9113b5847badf8f4191d71b29bf4f238a7f1d362fe373e9c4981a29b4fc"])
 def test_stale_or_wrong_packet_hash_is_rejected(packet, stale):
     assert stale != packet.packet_hash
     assert validate_brief_payload(packet, _payload(packet, SIMPLE, packet_hash=stale)).codes == {
@@ -217,7 +239,8 @@ def test_payload_validation_accepts_json_text(packet):
 
 
 def test_brief_objects_must_carry_the_hash(packet):
-    brief = ExecutiveBrief(title="t", statements=[st("A", "fact", "CI sales were $8,346M.", fact_ids=["S01"])],
+    statements = [BriefStatement.model_validate(s) for s in [*SIMPLE, *MANDATORY]]
+    brief = ExecutiveBrief(title=brief_title(packet), statements=statements,
                            validation_metadata=BriefMetadata(analysis_id=packet.analysis_id,
                                                              packet_hash=packet.packet_hash, author="test"))
     assert validate_brief(packet, brief).valid

@@ -24,7 +24,7 @@ EXPECTED_REJECTIONS = {
     "invalid_07_na_relationship_additive.json": {"NA_RELATIONSHIP_AS_ADDITIVE"},
     "invalid_08_stale_343_bps.json": {"FORBIDDEN_VALUE"},
     "invalid_09_stale_570_bps.json": {"FORBIDDEN_VALUE"},
-    "invalid_10_missing_r04_limitation.json": {"MISSING_RECONCILIATION_LIMITATION"},
+    "invalid_10_missing_r04_limitation.json": {"MISSING_RECONCILIATION_LIMITATION", "MISSING_MANDATORY_LIMITATION"},
     "invalid_11_omitted_disclosure_gap.json": {"MISSING_DISCLOSURE_GAP"},
     "invalid_12_missing_premises.json": {"MISSING_PREMISES"},
     "invalid_13_derived_as_disclosed.json": {"DERIVED_PRESENTED_AS_DISCLOSED"},
@@ -84,7 +84,7 @@ def test_schema_baseline_is_well_formed():
 
 def test_every_fixture_is_bound_to_the_current_packet(packet):
     for path in FIXTURES.glob("*.json"):
-        meta = json.loads(path.read_text())["validation_metadata"]
+        meta = json.loads(path.read_text(encoding="utf-8"))["validation_metadata"]
         assert meta["packet_hash"] == packet.packet_hash, (
             f"{path.name} carries a stale packet_hash; re-stamp fixtures after any packet change")
 
@@ -127,15 +127,17 @@ def test_demo_cli_reports_real_results(capsys):
 def test_demo_can_dump_the_packet(tmp_path, capsys):
     target = tmp_path / "packet.json"
     assert main([str(FIXTURES / "valid_brief.json"), "--dump-packet", str(target)]) == 0
-    dumped = json.loads(target.read_text())
+    dumped = json.loads(target.read_text(encoding="utf-8"))
     assert len(dumped["facts"]) == 65
     assert "valid_brief.json:\nVALID" in capsys.readouterr().out
 
 
 def test_no_llm_integration_in_package():
-    pyproject = (PACKAGE.parent / "pyproject.toml").read_text()
+    # Gate C: the provider SDK is an optional extra and may be imported only by fpa_engine/llm.py.
+    pyproject = (PACKAGE.parent / "pyproject.toml").read_text(encoding="utf-8")
     deps = re.search(r"^dependencies = \[(.*?)\]", pyproject, re.M).group(1)
     assert deps.strip() == '"pydantic>=2,<3"'
     pattern = re.compile(r"^\s*(?:import|from)\s+(anthropic|openai|httpx|requests|langchain)\b", re.M)
     for path in PACKAGE.rglob("*.py"):
-        assert not pattern.search(path.read_text()), path.name
+        if path.name != "llm.py":
+            assert not pattern.search(path.read_text(encoding="utf-8")), path.name

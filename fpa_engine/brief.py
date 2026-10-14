@@ -157,6 +157,20 @@ class ForbiddenValue(StrictModel):
         return self
 
 
+class SurfacingPolicy(StrictModel):
+    """Which limitations a brief must carry. Mandatory items are surfaced in every brief; conditional narratives
+    need a limitation only when the brief relies on them (directly or through a premise chain)."""
+    mandatory_reconciliation_ids: list[str]
+    mandatory_disclosure_gap_ids: list[str]
+    mandatory_comparability_note_ids: list[str]
+    conditional_narrative_ids: list[str]
+
+
+class StatementBounds(StrictModel):
+    min: int = Field(ge=1)
+    max: int = Field(ge=1)
+
+
 class BriefPacket(StrictModel):
     analysis_id: str
     company: str
@@ -165,6 +179,8 @@ class BriefPacket(StrictModel):
     generated_at: datetime
     packet_hash: str
     material_flags: list[str]
+    surfacing_policy: SurfacingPolicy
+    statement_bounds: StatementBounds
     sources: list[PacketSource]
     facts: list[PacketFact]
     narratives: list[PacketNarrative]
@@ -214,6 +230,7 @@ class BriefStatement(StrictModel):
     reconciliation_ids: list[str] = Field(default_factory=list)
     premise_ids: list[str] = Field(default_factory=list)
     flag_ids: list[str] = Field(default_factory=list)
+    comparability_note_ids: list[str] = Field(default_factory=list)
     severity: StatementSeverity = StatementSeverity.info
 
 
@@ -227,6 +244,15 @@ class ExecutiveBrief(StrictModel):
     title: str = Field(min_length=1)
     statements: list[BriefStatement] = Field(min_length=1)
     validation_metadata: BriefMetadata
+
+
+_LEGAL_SUFFIX = re.compile(r",?\s+(?:Inc|Incorporated|Corp|Corporation|Co|Company|Ltd|Limited|plc|LLC|N\.V|S\.A|AG)\.?$")
+
+
+def brief_title(packet: BriefPacket) -> str:
+    """The only title a brief may carry: built from packet metadata, never from model output."""
+    company = _LEGAL_SUFFIX.sub("", packet.company.strip())
+    return f"{company} {packet.period} — {packet.scope} Executive Brief"
 
 
 # --------------------------------------------------------------- builder ---
@@ -246,6 +272,34 @@ def _strip_workbook_refs(text: str) -> str:
     """Drop sentences that point at the workbook; the model must not see workbook provenance notes."""
     sentences = re.split(r"(?<=\.)\s+", text.strip())
     return " ".join(s for s in sentences if not _WORKBOOK_REF.search(s))
+
+
+def _relabel(text: str, terminology: dict[str, str]) -> str:
+    for internal, neutral in terminology.items():
+        text = text.replace(internal, neutral)
+    return text
+
+
+_INTERNAL_TERMS = re.compile(r"workbook", re.I)
+
+
+def _surfacing_policy(policy: dict[str, Any], recs: list[PacketReconciliation], flags: list[OpenFlag],
+                      notes: list[ComparabilityNote], narratives: list[PacketNarrative]) -> SurfacingPolicy:
+    sp = SurfacingPolicy.model_validate(policy["surfacing_policy"])
+    rec_status = {r.id: r.status for r in recs}
+    gap_ids = {f.id for f in flags if f.kind is OpenFlagKind.disclosure_gap}
+    problems = [f"{r} is not an UNRESOLVED reconciliation" for r in sp.mandatory_reconciliation_ids
+                if rec_status.get(r) is not ReconciliationStatus.UNRESOLVED]
+    problems += [f"{g} is not a disclosure gap" for g in sp.mandatory_disclosure_gap_ids if g not in gap_ids]
+    problems += [f"{n} is not a comparability note in the packet" for n in sp.mandatory_comparability_note_ids
+                 if n not in {c.id for c in notes}]
+    needs_limitation = {n.id for n in narratives if n.requires_limitation}
+    if set(sp.conditional_narrative_ids) != needs_limitation:
+        problems.append(f"conditional_narrative_ids must be exactly the review-required or assumption-based "
+                        f"narratives {sorted(needs_limitation)}")
+    if problems:
+        raise PacketBuildError("SURFACING_POLICY_INVALID: " + "; ".join(problems))
+    return sp
 
 
 def _decimals(precision: Decimal) -> int:
@@ -288,6 +342,7 @@ def build_brief_packet(
         raise PacketBuildError(f"benchmark failed input validation; no packet built:\n{exc}") from exc
     policy = policy or load_policy(bm.name)
     material = set(policy["material_flags"])
+    terminology: dict[str, str] = policy.get("terminology", {})
 
     available = {
         fid: f for fid, f in result.facts.items()
@@ -316,7 +371,7 @@ def build_brief_packet(
             origin=f.origin, value=f.value, display=format_display(f.value, f.unit, decimals),
             precision=f.precision, max_decimals=decimals if sourced else DERIVED_MAX_DECIMALS,
             uncertainty=None if sourced else result.calculations[fid].uncertainty,
-            price_basis=f.price_basis, basis=f.basis, flags=flags,
+            price_basis=f.price_basis, basis=_relabel(f.basis, terminology), flags=flags,
             requires_limitation=bool(material & set(flags)), source_ids=list(f.source_ids),
             derived_from=list(f.inputs), comparability_note_ids=note_ids_by_fact.get(fid, []),
         ))
@@ -363,7 +418,8 @@ def build_brief_packet(
             reported_change=r.reported_change, identified_change=r.identified_change, residual=r.residual,
             allowed=r.tolerance.allowed if r.tolerance else None,
             unquantified_components=list(r.unquantified_components), circular=r.circular,
-            precision_limited=r.precision_limited, reason=r.reason, input_fact_ids=list(r.input_fact_ids),
+            precision_limited=r.precision_limited, reason=_relabel(r.reason, terminology),
+            input_fact_ids=list(r.input_fact_ids),
             related_fact_ids=related, requires_limitation=r.status is not ReconciliationStatus.RECONCILED,
         ))
     known_ids = fact_ids | {r.id for r in reconciliations}
@@ -374,7 +430,7 @@ def build_brief_packet(
         open_flags.append(OpenFlag(
             id=gap.id, kind=OpenFlagKind.disclosure_gap, subject_ids=[gap.metric], related_ids=links,
             message=(f"{gap.disclosure_status.value}: {gap.metric} ({gap.scope}, {gap.period}). "
-                     f"{_strip_workbook_refs(gap.reason)}").strip(),
+                     f"{_relabel(_strip_workbook_refs(gap.reason), terminology)}").strip(),
         ))
     for n in narratives:
         if n.review_status is ReviewStatus.needs_review:
@@ -396,13 +452,21 @@ def build_brief_packet(
         for s in sorted(bm.sources, key=lambda s: s.id) if s.id in cited_sources
     ]
     forbidden = [ForbiddenValue.model_validate(fv) for fv in policy["forbidden_values"]]
+    surfacing = _surfacing_policy(policy, reconciliations, open_flags, notes, narratives)
+    bounds = StatementBounds.model_validate(policy["statement_count"])
+    if bounds.min > bounds.max:
+        raise PacketBuildError(f"STATEMENT_BOUNDS_INVALID: min {bounds.min} > max {bounds.max}")
 
     payload = dict(
         analysis_id=policy["analysis_id"], company=policy["company"], period=policy["period"],
         scope=policy["scope"], generated_at=generated_at or datetime.now(timezone.utc), packet_hash="",
-        material_flags=sorted(material), sources=sources, facts=facts, narratives=narratives,
+        material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds, sources=sources, facts=facts, narratives=narratives,
         reconciliations=reconciliations, comparability_notes=notes, open_flags=open_flags,
         forbidden_values=forbidden,
     )
     draft = BriefPacket(**payload)
+    leak = _INTERNAL_TERMS.search(draft.model_dump_json())
+    if leak:
+        raise PacketBuildError("INTERNAL_TERMINOLOGY: packet-visible text mentions the source workbook; "
+                               "add a neutral term to the policy terminology map")
     return draft.model_copy(update={"packet_hash": _packet_hash(draft.model_dump(mode="json"))})
