@@ -408,10 +408,17 @@ def quoted_spans(text: str) -> list[str]:
 
 def _quote_matches(span: str, verbatim: str) -> bool:
     """Every fragment of the span (split at an ellipsis) is an exact excerpt of the verbatim quote, ignoring case
-    and whitespace runs."""
+    and whitespace runs, and the fragments occur in the source in the order quoted (not necessarily adjacent).
+    Each fragment is matched at its earliest position after the previous one, which never rejects a valid order."""
     source = _normalize_quote(verbatim)
     fragments = [f for f in (_normalize_quote(x) for x in _ELLIPSIS.split(span)) if f]
-    return bool(fragments) and all(f in source for f in fragments)
+    position = 0
+    for fragment in fragments:
+        found = source.find(fragment, position)
+        if found < 0:
+            return False
+        position = found + len(fragment)
+    return bool(fragments)
 
 
 def _quotable(nid: str, ctx: _Context) -> bool:

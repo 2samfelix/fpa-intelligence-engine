@@ -158,6 +158,20 @@ def test_quote_with_ellipsis_passes(packet):
                        'Construction Industries".', evidence_ids=["N04"], assertion_ids=["N04-A02"]) == set()
 
 
+@pytest.mark.parametrize("quoted, ok", [
+    ("a more typical ... in the first quarter", True),
+    ("in the first quarter ... a more typical", False),
+    ("a more typical … first quarter … prior year", True),
+    ("a more typical ... prior year ... first quarter", False),
+    ("first quarter ... a more typical ... prior year", False),
+    ("a slight decrease ... a slight decrease", False),
+])
+def test_ellipsis_fragments_must_keep_source_order(packet, quoted, ok):
+    found = voice_codes(packet, "explicit_claim", f'The CFO called the Q1 2026 build "{quoted}".',
+                        evidence_ids=["N07"], assertion_ids=["N07-A02"])
+    assert found == (set() if ok else {"QUOTE_NOT_VERBATIM"})
+
+
 @pytest.mark.parametrize("text, evidence", [
     ('The Q2 2026 release said volume was "mainly driven by end users".', "N02"),
     ('The Q2 2026 release said volume was "mainly driven by the impact from changes in dealer inventories and '
