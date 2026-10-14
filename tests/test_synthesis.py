@@ -75,7 +75,7 @@ def test_prompt_is_deterministic_and_bound_to_the_packet(packet, benchmark):
 def test_prompt_states_the_synthesis_rules():
     for phrase in ("Use only facts and evidence in the packet", "Do not calculate", "Never write any value listed in "
                    "forbidden_values, in any statement of any kind", "not even in a limitation",
-                   "Copy the display value exactly; never add precision", "premise_ids must list",
+                   "Copy the display value. Never add precision", "premise_ids must list",
                    "Never relabel interpretive evidence as explicit", "mandatory_reconciliation_ids",
                    "mandatory_disclosure_gap_ids", "mandatory_comparability_note_ids", "conditional_narrative_ids",
                    "Do not add limitations for conditional narratives the brief does not rely on",
@@ -379,7 +379,7 @@ def test_every_attempt_is_logged_without_secrets(packet, valid, caplog, monkeypa
     assert [e["event"] for e in events] == ["synthesis_attempt", "synthesis_attempt", "synthesis_result"]
     for e in events:
         assert e["model"] == "mock-deterministic" and e["packet_hash"] == packet.packet_hash
-        assert e["prompt_version"] == "synthesis_v2_1" and e["timestamp"] == T0.isoformat()
+        assert e["prompt_version"] == "synthesis_v3" and e["timestamp"] == T0.isoformat()
     assert [e.get("attempt") for e in events[:2]] == [1, 2]
     assert events[0]["validation"] == "REJECTED" and events[0]["error_codes"] == ["PACKET_HASH_MISMATCH"]
     assert events[2]["validation"] == "ACCEPTED" and events[2]["attempt_count"] == 2

@@ -71,7 +71,7 @@ def test_packet_hash_mismatch_is_refused(tmp_path, monkeypatch):
 
 
 def test_prompt_version_mismatch_is_refused(tmp_path, monkeypatch):
-    monkeypatch.setattr(gate_c2, "PROMPT_VERSION", "synthesis_v3")
+    monkeypatch.setattr(gate_c2, "PROMPT_VERSION", "synthesis_v0_unpinned")
     make = _clients([])
     with pytest.raises(gate_c2.GateError, match="prompt version"):
         gate_c2.evaluate(1, tmp_path / "out", make)

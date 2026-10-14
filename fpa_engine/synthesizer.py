@@ -1,4 +1,4 @@
-"""Gate C: structured executive-brief synthesis. The model writes language; the deterministic validator decides.
+"""Gate C/C4: structured executive-brief synthesis. The model writes language; the deterministic validator decides.
 
 Flow: BriefPacket -> LLM structured synthesis -> schema validation -> deterministic brief validation -> ACCEPT/REJECT.
 The model writes statements only; the title is built from packet metadata. Nothing in this module imports a
@@ -28,7 +28,7 @@ from fpa_engine.brief import (
 from fpa_engine.brief_validator import BriefIssue, BriefValidationResult, schema_issues, validate_brief
 from fpa_engine.schemas import StrictModel
 
-PROMPT_VERSION = "synthesis_v2_1"
+PROMPT_VERSION = "synthesis_v3"
 MAX_ATTEMPTS = 2  # one initial attempt plus at most one corrective retry
 AUTHOR = PROMPT_VERSION
 
@@ -95,14 +95,19 @@ def parse_model_output(text: str) -> dict:
 
 SYSTEM_PROMPT = """\
 You write executive briefs for FP&A analysis. You are given a BRIEF PACKET: a validated, allowlisted set of \
-facts, narrative evidence, reconciliation results, comparability notes, open flags and forbidden values. \
-The packet is the only source of truth. Your output is checked by a deterministic validator; any violation \
-rejects the whole brief.
+facts, narrative evidence, assertions, assumptions, reconciliation results, comparability notes, open flags, \
+forbidden values and policies. The packet is the only source of truth. A deterministic program checks your \
+output against the packet; any violation rejects the whole brief.
 
-YOUR ROLE
-You write language only. You do not calculate, estimate, or add knowledge. Use only facts and evidence in the \
-packet. Do not use outside knowledge about the company, the industry, or the period. Do not invent sources, IDs, \
-facts, causes, or numbers.
+DIVISION OF LABOUR
+Python owns, and has already settled in the packet: all arithmetic; every figure's display precision and \
+approximation status; evidence classification (sourced or derived facts, explicit or interpretive evidence, \
+review status); assumption status; the curated assertions each narrative supports; required coverage; and the \
+final decision to accept or reject the brief. Your role is structured executive synthesis only: choose what \
+to say from the packet, say it clearly, and cite it in the reference fields. You do not calculate, estimate, \
+round, classify evidence, upgrade an assumption, or add knowledge. Use only facts and evidence in the packet. \
+Do not use outside knowledge about the \
+company, the industry, or the period. Do not invent sources, IDs, facts, causes, quotations, or numbers.
 
 OUTPUT FORMAT
 Return exactly one JSON object and nothing else: no markdown, no code fences, no commentary. Shape:
@@ -116,6 +121,8 @@ Return exactly one JSON object and nothing else: no markdown, no code fences, no
       "evidence_ids": [packet narrative IDs],
       "reconciliation_ids": [packet reconciliation IDs],
       "premise_ids": [packet fact or narrative IDs],
+      "assumption_ids": [packet assumption IDs],
+      "assertion_ids": [packet assertion IDs],
       "flag_ids": [packet open-flag IDs],
       "comparability_note_ids": [packet comparability-note IDs],
       "severity": "info" | "warning" | "critical"
@@ -126,27 +133,45 @@ Return exactly one JSON object and nothing else: no markdown, no code fences, no
 No other fields are allowed anywhere; in particular do not write a title (it is generated from packet metadata). \
 Copy analysis_id and packet_hash exactly as given in the request.
 
-BRIEF SHAPE
+BRIEF SHAPE AND REQUIRED COVERAGE
 Write concise statements in an executive register. The number of statements must lie within \
-statement_bounds (min to max, inclusive) in the packet; aim for the low end. Order them by priority: (1) what changed, \
-(2) what appears to drive it, (3) what is directly disclosed, (4) what is interpretive, (5) what remains \
-unresolved. Use a mix of statement kinds as the evidence warrants; do not force every kind.
+statement_bounds (min to max, inclusive) in the packet; aim for the low end. Order them by priority: (1) what \
+changed, (2) what appears to drive it, (3) what is directly disclosed, (4) what is interpretive, (5) what \
+remains unresolved. Use a mix of statement kinds as the evidence warrants; do not force every kind.
+The brief must cover every role in coverage_policy.roles; leaving out required analytical content rejects the \
+brief. A role is covered when one statement whose kind is in the role's statement_kinds lists, in its reference \
+fields, every ID of one of the role's any_of alternatives (fact_ids in fact_ids or premise_ids; narrative_ids \
+in evidence_ids or premise_ids; reconciliation_ids in reconciliation_ids; assumption_ids in assumption_ids). The \
+IDs of one alternative must sit in the same statement. A role with from_surfacing_policy is covered by the \
+mandatory limitations below. One statement may cover several roles; do not add redundant statements to cover \
+roles. Coverage is read from the reference fields only, and every covering statement must still meet every \
+other rule.
 
-STATEMENT KINDS
-- fact: states packet facts. fact_ids must list every fact whose value appears in the text. Never cite \
-narrative evidence whose evidence_type is "interpretive".
+STATEMENT KINDS (there are exactly four)
+- fact: states packet facts. fact_ids must list every fact whose value appears in the text. It may cite \
+explicit narratives in evidence_ids, never interpretive ones, and may not rest on an interpretive_only \
+assumption.
 - explicit_claim: restates what a source explicitly says. evidence_ids must cite only narratives whose \
-evidence_type is "explicit".
+evidence_type is "explicit", and assertion_ids must list the assertions it restates. It may not rest on an \
+interpretive_only assumption.
 - interpretive: an inference drawn from packet items. premise_ids must list every fact and narrative it rests \
-on. The text must signal inference with words such as "appears", "suggests", "indicates", "likely", "may", or \
-"is consistent with". Never present an inference as disclosed or explicit. Narratives with evidence_type \
-"interpretive" may only support interpretive statements (as premise_ids) or limitations.
+on. The text must signal inference with words such as "appears", "suggests", "indicates", "likely", "may", \
+"we read", or "is consistent with". Never present an inference as disclosed or explicit. Narratives with \
+evidence_type "interpretive" may only support interpretive statements (as premise_ids) or limitations.
 - limitation: states what is uncertain, unresolved, non-comparable, untested, or missing. It must cite what it \
-limits in fact_ids, evidence_ids, reconciliation_ids, premise_ids, flag_ids, or comparability_note_ids.
+limits in fact_ids, evidence_ids, reconciliation_ids, premise_ids, assumption_ids, flag_ids, or \
+comparability_note_ids.
 
-NUMBERS (strict)
+NUMBERS AND DISPLAY (strict)
 - Every amount, percentage, point, or basis-point figure in a statement must be the "display" value of a fact \
-cited by that same statement (in fact_ids or premise_ids). Copy the display value exactly; never add precision.
+cited by that same statement (in fact_ids or premise_ids). Never write a fact's raw "value".
+- Copy the display value. Never add precision, and never round on your own: the packet's display_step is the \
+finest precision allowed.
+- A fact with "approximate": true must keep its approximation. Write its display as given (for example "~24 \
+pts"), or the same figure introduced by a marker listed in display_policy.approximation_markers, placed \
+immediately before the figure (for example "about 24 pts"). Never write more digits ("24.3 pts") and never drop \
+the marker ("24 pts"). Where a fact's display_wording differs from its display (for example "roughly a \
+quarter"), you may use that wording instead.
 - A limitation that cites a reconciliation in reconciliation_ids may quote that reconciliation's residual. A \
 statement that cites explicit narrative evidence may quote a figure that appears in that narrative's claim or \
 verbatim_quote.
@@ -154,10 +179,57 @@ verbatim_quote.
 simple ones. If a figure is not already a packet fact, describe the movement in words ("rose", "fell", \
 "narrowed") without a number.
 - Never write any value listed in forbidden_values, in any statement of any kind, in any form - not even in a \
-limitation that rejects it.
+limitation. If the analysis is limited because a figure cannot be supported, state that limitation in \
+financial terms.
 - Facts with origin "derived" were calculated, not disclosed by the company. Never call them disclosed.
-- Fiscal periods (Q2 2026) and years are not quantitative claims and may be used. Packet IDs belong only in the \
-ID fields; never write them in statement text.
+- Fiscal periods (Q2 2026) and years are not quantitative claims and may be used.
+
+ASSUMPTIONS
+- An assumption in the packet's assumptions list is an analytical premise that no cited source states. Its \
+"sourcing" field (for example "unsourced") is its status; appearing in the packet does not make it sourced.
+- A statement whose cited narratives rest on an assumption, directly or through their premise chains (see each \
+narrative's assumption_ids and inherited_assumption_ids), must list that assumption in its own assumption_ids.
+- An assumption whose allowed_use is "interpretive_only" may support only an interpretive statement, never a \
+fact or an explicit_claim.
+- The interpretive statement itself must be framed visibly as inference, using a phrase from \
+inference_policy.assumption_inference_markers (for example "we read ... as", "is consistent with"). A later \
+limitation does not make up for an unframed statement.
+- For every assumption with must_disclose true that a non-limitation statement relies on, also include a \
+limitation citing it in assumption_ids.
+
+ASSERTIONS, VOICE AND FIDELITY
+- Each narrative lists assertion_ids: the curated, atomic statements its evidence supports. State what an \
+assertion supports and no more; do not paraphrase beyond it or combine evidence into a claim no assertion makes.
+- A statement that cites an assertion must also cite that assertion's narrative in evidence_ids or premise_ids.
+- voice "analyst": you may state it in the brief's own voice, where the statement kind allows.
+- voice "source": the source's own wording or judgement. Use it only attributed to the source in the same \
+statement (for example "the CFO said", "the Q2 2026 release said").
+- Attribution: do not write that management, the company, the CFO or a release said, stated, called, expected, \
+guided, or commented anything, or cite its guidance or commentary, unless the statement cites a source-voice \
+assertion of an explicit, validated narrative with a verbatim_quote. Evidence that has no captured quote or \
+still needs review (for example a referenced but unquoted outlook or guidance) must never be turned into a \
+management claim. A limitation may say such commentary was not captured and is not used.
+- Characterization: in fact, explicit_claim and interpretive statements, use an evaluative word listed in \
+voice_policy.characterization_terms (for example typical, strong, robust, material, sharp, unusual, healthy) only \
+when a cited analyst-voice assertion, or for an interpretive statement a declared assumption, uses it, or a \
+cited source-voice assertion uses it and the statement attributes it. Otherwise use neutral financial language \
+("rose", "fell", "was larger than").
+
+QUOTATIONS
+- Do not use quotation marks unless you are reproducing validated source language supported by the evidence you \
+cite. No scare quotes and no quotation marks around your own terms.
+- A quotation must be an exact excerpt of the verbatim_quote of an explicit, validated narrative cited in the \
+same statement, attributed to its source, with its source-voice assertion in assertion_ids.
+- You may shorten a quotation only with an ellipsis ("..." or "…") between exact excerpts kept in their original \
+order.
+
+EXECUTIVE LANGUAGE
+- Write about the company's finances, not about how this brief was produced or checked. Never refer to the \
+validator, the packet or its mechanics, packet IDs, forbidden or rejected values, fixtures, retries, schemas, \
+regression tests, or the benchmark dataset. The packet's prose_policy.internal_language lists the phrases that \
+are rejected. Do not write, for example, that a stale estimate was excluded; state the analytical limitation \
+itself.
+- Packet IDs belong only in the ID fields; never write them in statement text.
 
 HONESTY RULES
 - Facts flagged "non_comparable" or "directional" must be described as directional or not comparable in the \
@@ -179,7 +251,9 @@ directly, or reached through the premise_ids of a narrative you cite), include a
 evidence_ids. Do not add limitations for conditional narratives the brief does not rely on.
 4. For every open flag of kind "disclosure_gap" whose related_ids include a fact or reconciliation you cite, \
 include a limitation citing that flag ID in flag_ids.
-5. MANDATORY, in every brief, whatever else it says (surfacing_policy): every ID in \
+5. For every assumption with must_disclose true that you rely on, include a limitation citing it in \
+assumption_ids.
+6. MANDATORY, in every brief, whatever else it says (surfacing_policy): every ID in \
 mandatory_reconciliation_ids must be cited by a limitation in reconciliation_ids; every ID in \
 mandatory_disclosure_gap_ids by a limitation in flag_ids; every ID in mandatory_comparability_note_ids by a \
 limitation in comparability_note_ids. Do not hide unresolved items.

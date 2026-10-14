@@ -149,14 +149,15 @@ def test_audit_metadata_is_kept_internally(packet):
     assert all(f.id for f in packet.facts) and packet.assumption_map["AS01"]
 
 
-def test_revised_prompt_has_its_own_version():
-    """The Step 3 prompt text differs from synthesis_v2; synthesis_v3 is reserved for the full Gate C4 contract."""
+def test_prompt_version_is_the_final_c4_contract():
+    """synthesis_v2_1 was the interim Step 3 prompt; synthesis_v3 is the completed Gate C4 contract."""
     from fpa_engine import gate_c2
-    assert PROMPT_VERSION == gate_c2.EXPECTED_PROMPT_VERSION == "synthesis_v2_1"
+    assert PROMPT_VERSION == gate_c2.EXPECTED_PROMPT_VERSION == "synthesis_v3"
 
 
 def test_prompt_no_longer_invites_pipeline_narration():
-    assert "estimate was excluded" not in SYSTEM_PROMPT
+    assert "You may say" not in SYSTEM_PROMPT and "that a stale or unsupported estimate was excluded" not in SYSTEM_PROMPT
+    assert "Do not write, for example, that a stale estimate was excluded" in SYSTEM_PROMPT
     assert "packet IDs are not quantitative claims and may be used" not in SYSTEM_PROMPT
     assert "never write them in statement text" in SYSTEM_PROMPT
 
