@@ -63,6 +63,9 @@ def _covered(packet, brief: dict) -> dict[str, list[str]]:
     return covered_roles(packet, ExecutiveBrief.model_validate(brief).statements)
 
 
+# V4 rests only on the retail pair and the driver-order narrative: no interpretive statement draws on the dealer build.
+V4_NO_KEY = dict(text="We read the change between Q1 and Q2 2026 as consistent with a shift toward end-user demand: "
+                      "World retail growth rose from 7% to 22%.", premise_ids=["S21", "S22", "N03"])
 V4_NO_DEALER = dict(text="We read the change between Q1 and Q2 2026 as consistent with a shift toward end-user demand: "
                          "World retail growth rose from 7% to 22%.", premise_ids=["S21", "S22", "N15"])
 
@@ -78,7 +81,9 @@ def test_caterpillar_policy_builds_with_every_role(packet):
     assert alts["demand_signal"] == [["S21", "S22"], ["D08", "D07"]]
     assert alts["primary_reconciliation"] == [["R01"], ["R02"]]
     assert alts["material_unresolved_item"] == [["R04"]]
-    assert alts["key_interpretation"] == [["N15"]]
+    assert alts["key_interpretation"] == [["S23", "S25", "S21", "S22"], ["S23", "S25", "D08", "D07"], ["N15"]]
+    flags = {r.role: [a.availability_dependent for a in r.any_of] for r in cp.roles}
+    assert flags["demand_signal"] == [False, True] and flags["key_interpretation"] == [False, True, False]
     assert next(r for r in cp.roles if r.role == "mandatory_limitation").from_surfacing_policy
 
 
@@ -134,8 +139,7 @@ def test_no_r04_unresolved_status(packet):
 
 
 def test_no_key_interpretation(packet):
-    """The Step 2 valid brief rested its interpretation on N03 only; it is now rejected."""
-    brief = _edit(_valid(), "V4", premise_ids=["S23", "S25", "S21", "S22", "N03"])
+    brief = _edit(_valid(), "V4", **V4_NO_KEY)
     result = _result(packet, brief)
     assert result.codes == {"MISSING_REQUIRED_COVERAGE"} and _missing_roles(result) == {"key_interpretation"}
 
@@ -197,8 +201,8 @@ def test_a_pair_split_across_statements_does_not_count(packet):
 
 def test_a_statement_of_a_disallowed_kind_does_not_count(packet):
     lim = {"id": "V10", "kind": "limitation", "text": "The demand-quality thesis still needs review.",
-           "evidence_ids": ["N15"]}
-    brief = _add(_edit(_valid(), "V4", premise_ids=["S23", "S25", "S21", "S22", "N03"]), lim)
+           "evidence_ids": ["N15"], "fact_ids": ["S23", "S25", "S21", "S22"]}
+    brief = _add(_edit(_valid(), "V4", **V4_NO_KEY), lim)
     assert _missing_roles(_result(packet, brief)) == {"key_interpretation"}
 
 
@@ -293,20 +297,68 @@ def test_minimum_statement_slots(achievable, slots):
     assert minimum_statement_slots([frozenset(a) for a in achievable]) == slots
 
 
-def test_uncomputable_fact_drops_only_its_alternative(benchmark):
+def _degraded(benchmark):
+    """S02 below one disclosure unit: D03, D05 and D07 cannot be computed and are flagged unavailable."""
     s02 = benchmark.fact_map["S02"]
-    degraded = build_brief_packet(benchmark.with_fact(s02.model_copy(update={"value": Decimal("0.4")})),
-                                  generated_at=T0)
-    demand = next(r for r in degraded.coverage_policy.roles if r.role == "demand_signal")
-    assert [a.all_ids() for a in demand.any_of] == [["S21", "S22"]]
+    return benchmark.with_fact(s02.model_copy(update={"value": Decimal("0.4")}))
 
 
-def test_role_with_only_uncomputable_alternatives_blocks_the_packet(benchmark):
-    s02 = benchmark.fact_map["S02"]
-    policy = _policy_with(demand_signal={"any_of": [{"fact_ids": ["D08", "D07"]}]})
-    with pytest.raises(PacketBuildError, match="every alternative names a fact this packet cannot compute"):
-        build_brief_packet(benchmark.with_fact(s02.model_copy(update={"value": Decimal("0.4")})),
-                           generated_at=T0, policy=policy)
+def test_unavailable_marked_alternative_is_dropped_when_another_remains(benchmark):
+    degraded = build_brief_packet(_degraded(benchmark), generated_at=T0)
+    roles = {r.role: [a.all_ids() for a in r.any_of] for r in degraded.coverage_policy.roles}
+    assert roles["demand_signal"] == [["S21", "S22"]]
+    assert roles["key_interpretation"] == [["S23", "S25", "S21", "S22"], ["N15"]]
+
+
+def test_all_alternatives_unavailable_blocks_the_packet(benchmark):
+    policy = _policy_with(demand_signal={"any_of": [{"fact_ids": ["D08", "D07"], "availability_dependent": True}]})
+    with pytest.raises(PacketBuildError, match="demand_signal: no viable alternative"):
+        build_brief_packet(_degraded(benchmark), generated_at=T0, policy=policy)
+
+
+def test_unmarked_alternative_may_not_silently_disappear(benchmark):
+    policy = _policy_with(demand_signal={"any_of": [{"fact_ids": ["S21", "S22"]}, {"fact_ids": ["D08", "D07"]}]})
+    with pytest.raises(PacketBuildError, match="needs D07, which this packet cannot compute, and is not marked"):
+        build_brief_packet(_degraded(benchmark), generated_at=T0, policy=policy)
+
+
+def test_unknown_id_still_blocks_a_degraded_packet(benchmark):
+    policy = _policy_with(demand_signal={"any_of": [{"fact_ids": ["S21", "S22"]},
+                                                    {"fact_ids": ["D98", "D99"], "availability_dependent": True}]})
+    with pytest.raises(PacketBuildError, match="names IDs not in the packet: fact_ids D98"):
+        build_brief_packet(_degraded(benchmark), generated_at=T0, policy=policy)
+
+
+# ------------------------------------------------ assumption-free thesis ---
+
+ASSUMPTION_FREE_V4 = dict(
+    text="The Q1-to-Q2 2026 pattern suggests growth leaned less on dealer restocking and more on end-user demand: "
+         "the disclosed CI dealer build fell from $1.5 billion to $400 million while World retail growth rose from "
+         "7% to 22%.", premise_ids=["S23", "S25", "S21", "S22"], assumption_ids=[])
+
+
+def test_key_interpretation_needs_neither_n03_nor_as01(packet):
+    brief = _edit(_drop(_valid(), "V6"), "V4", **ASSUMPTION_FREE_V4)
+    cited = {i for s in brief["statements"] for f in ("evidence_ids", "premise_ids", "assumption_ids")
+             for i in s.get(f, [])}
+    assert not cited & {"N03", "N15", "AS01"}
+    assert _covered(packet, brief)["key_interpretation"] == ["V4"]
+    assert _result(packet, brief).valid
+
+
+def test_gap_pair_also_carries_an_assumption_free_thesis(packet):
+    v4 = dict(ASSUMPTION_FREE_V4, premise_ids=["S23", "S25", "D08", "D07"],
+              text="The Q1-to-Q2 2026 pattern suggests growth leaned less on dealer restocking and more on end-user "
+                   "demand: the disclosed CI dealer build fell from $1.5 billion to $400 million while the adjusted "
+                   "reported-vs-retail gap, a directional reading, narrowed from ~24 pts to ~8 pts.")
+    brief = _add(_edit(_drop(_valid(), "V6"), "V4", **v4), GAP_LIMITATION)
+    assert _covered(packet, brief)["key_interpretation"] == ["V4"]
+    assert _result(packet, brief).valid
+
+
+def test_n15_remains_optional_support_and_keeps_its_assumption_rules(packet):
+    brief = _edit(_valid(), "V4", assumption_ids=[])
+    assert "HIDDEN_ASSUMPTION" in _result(packet, brief).codes
 
 
 # -------------------------------------------------------------- synthesis ---
@@ -318,7 +370,7 @@ def _model_output(brief: dict) -> dict:
     return out
 
 
-MISSING_KEY = _edit(_valid(), "V4", premise_ids=["S23", "S25", "S21", "S22", "N03"])
+MISSING_KEY = _edit(_valid(), "V4", **V4_NO_KEY)
 
 
 def test_missing_role_is_named_on_the_single_retry_and_fixed(packet):
@@ -328,8 +380,8 @@ def test_missing_role_is_named_on_the_single_retry_and_fixed(packet):
     corrections = client.calls[1].corrections
     assert [(e.code, e.subject_id) for e in corrections] == [("MISSING_REQUIRED_COVERAGE", "key_interpretation")]
     content = client.calls[1].messages[0]["content"]
-    assert "key_interpretation" in content and "narrative_ids N15" in content
-    assert "We read the change between Q1 and Q2 2026" not in content  # the rejected brief is never resent
+    assert "key_interpretation" in content and "fact_ids S23 + S25 + S21 + S22" in content
+    assert "World retail growth rose from 7% to 22%." not in content  # the rejected brief is never resent
 
 
 def test_second_response_missing_coverage_hard_rejects_after_two_calls(packet):

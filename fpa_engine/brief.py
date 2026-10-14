@@ -221,6 +221,7 @@ class CoverageAlternative(StrictModel):
     reconciliation_ids: list[str] = Field(default_factory=list)
     narrative_ids: list[str] = Field(default_factory=list)
     assumption_ids: list[str] = Field(default_factory=list)
+    availability_dependent: bool = False  # may be dropped when one of its derived facts cannot be computed
 
     def all_ids(self) -> list[str]:
         return [*self.fact_ids, *self.reconciliation_ids, *self.narrative_ids, *self.assumption_ids]
@@ -493,8 +494,9 @@ def _coverage_policy(policy: dict[str, Any], bounds: StatementBounds, surfacing:
                      reconciliations: list[PacketReconciliation],
                      assumptions: list[PacketAssumption], unavailable: set[str] = frozenset()) -> CoveragePolicy:
     """Validate the role policy against this packet and check that it can fit in the statement bounds. An
-    alternative naming a benchmark fact that could not be computed is dropped (the packet flags it unavailable);
-    any other unknown ID is a policy error, and a role left with no alternative is infeasible."""
+    alternative marked availability_dependent is dropped when it names a benchmark fact this packet could not compute
+    (the packet flags it unavailable); an unmarked alternative in that position, or any unknown ID, is a policy error,
+    and a role left with no viable alternative is infeasible. A required role is never silently weakened."""
     raw = policy.get("coverage_policy")
     if raw is None:
         raise PacketBuildError("COVERAGE_POLICY_INVALID: brief policy has no coverage_policy")
@@ -534,7 +536,11 @@ def _coverage_policy(policy: dict[str, Any], bounds: StatementBounds, surfacing:
             if not alt.all_ids():
                 problems.append(f"{label}: alternative {i} is empty")
                 continue
-            if set(alt.fact_ids) & unavailable:
+            missing = sorted(set(alt.fact_ids) & unavailable)
+            if missing:
+                if not alt.availability_dependent:
+                    problems.append(f"{label}: alternative {i} needs {', '.join(missing)}, which this packet cannot "
+                                    f"compute, and is not marked availability_dependent")
                 continue
             unknown = [f"{field} {x}" for field, ids in known.items() for x in getattr(alt, field) if x not in ids]
             if unknown:
@@ -547,7 +553,8 @@ def _coverage_policy(policy: dict[str, Any], bounds: StatementBounds, surfacing:
             reach |= kinds
             kept.append(alt)
         if role.any_of and not kept and not any(p.startswith(f"{label}:") for p in problems):
-            problems.append(f"{label}: every alternative names a fact this packet cannot compute")
+            problems.append(f"{label}: no viable alternative; every alternative names a fact this packet cannot "
+                            f"compute")
         pruned.append(role.model_copy(update={"any_of": kept}))
         achievable.append(frozenset(reach))
     if problems:
