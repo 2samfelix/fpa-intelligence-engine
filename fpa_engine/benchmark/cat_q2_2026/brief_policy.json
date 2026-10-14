@@ -39,6 +39,14 @@
     "G06": ["D11", "R04"],
     "G07": ["S14", "D11"]
   },
+  "display_policy": {
+    "approximation_markers": ["~", "≈", "about", "approximately", "roughly", "around"],
+    "fact_overrides": {
+      "D13": {"display_step": "5", "approximate": true, "display_wording": "roughly a quarter", "reason": "Ratio of two dealer-build figures disclosed only to the nearest $100M (about +/-4 points); the input rounding, not the arithmetic, sets the precision."},
+      "D14": {"display_step": "5", "approximate": true, "reason": "Ratio of two dealer-build figures disclosed only to the nearest $100M (about +/-4 points); a power-of-ten step would misstate it as about 80%."},
+      "D15": {"approximate": true, "reason": "Dollar conversion of the rounded 340 bps call figure; an estimate, not a disclosed dollar amount."}
+    }
+  },
   "forbidden_values": [
     {"id": "FV01", "unit": "bps", "value": "343", "reason": "Stale rounding artifact for the Q2 2026 CI tariff impact; the disclosed figure is 340 bps."},
     {"id": "FV02", "unit": "bps", "value": "342.85", "reason": "The Q4 2025 and Q1 2026 distortion method re-applied to Q2 2026; not the disclosed 340 bps."},

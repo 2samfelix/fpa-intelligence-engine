@@ -78,9 +78,9 @@ def test_display_and_precision_metadata(packet):
     fm = packet.fact_map
     assert (fm["S23"].display, fm["S23"].precision, fm["S23"].max_decimals) == ("$1,500M", Decimal("100"), 0)
     assert (fm["S17"].display, fm["S17"].max_decimals) == ("23.3%", 1)
-    assert (fm["D03"].display, fm["D03"].max_decimals) == ("34.8%", 2)
-    assert fm["D07"].display == "7.8 pts" and fm["D07"].uncertainty == Decimal("0.5")
-    assert fm["D09"].display == "320 bps" and fm["D09"].uncertainty == Decimal("10")
+    assert (fm["D03"].display, fm["D03"].display_step, fm["D03"].max_decimals) == ("34.8%", Decimal("0.1"), 1)
+    assert fm["D07"].display == "~8 pts" and fm["D07"].uncertainty == Decimal("0.5")
+    assert fm["D09"].display == "~320 bps" and fm["D09"].uncertainty == Decimal("10")
 
 
 def test_d15_stays_derived_not_disclosed(packet):
@@ -88,7 +88,7 @@ def test_d15_stays_derived_not_disclosed(packet):
     assert d15.origin is Origin.derived
     assert "derived_not_disclosed" in d15.flags
     assert d15.source_ids == []
-    assert d15.display == "$284M"
+    assert d15.display == "~$284M" and d15.approximate
     assert "CN10" in d15.comparability_note_ids
     assert packet.fact_map["S29"].value == Decimal("340")
 

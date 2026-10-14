@@ -5,13 +5,15 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal, localcontext
 from enum import Enum
+from itertools import product
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from fpa_engine.calculator import DECIMAL_PRECISION, REGISTRY
 from fpa_engine.loader import BENCHMARK_ROOT, Benchmark, load_benchmark
 from fpa_engine.pipeline import ValidationFailed, run
 from fpa_engine.schemas import (
@@ -30,9 +32,11 @@ from fpa_engine.schemas import (
     Unit,
     VerificationMethod,
 )
+from fpa_engine.tolerance import half_unit
 
+PACKET_VERSION = 2
 DERIVED_DISPLAY_DECIMALS = {Unit.usd_m: 0, Unit.pct: 1, Unit.pts: 1, Unit.bps: 0}
-DERIVED_MAX_DECIMALS = 2
+APPROX_PREFIX = "~"
 BASIS_FLAGS = {
     "mixed_basis_identity_test": "non_comparable",
     "directional_indicator": "directional",
@@ -67,6 +71,9 @@ class PacketFact(StrictModel):
     origin: Origin
     value: Decimal
     display: str
+    display_wording: str
+    display_step: Decimal
+    approximate: bool
     precision: Decimal | None = None
     max_decimals: int
     uncertainty: Decimal | None = None
@@ -166,12 +173,18 @@ class SurfacingPolicy(StrictModel):
     conditional_narrative_ids: list[str]
 
 
+class DisplayPolicy(StrictModel):
+    """Words or symbols that may introduce an approximate figure (\"~24 pts\", \"about 24 pts\")."""
+    approximation_markers: list[str] = Field(min_length=1)
+
+
 class StatementBounds(StrictModel):
     min: int = Field(ge=1)
     max: int = Field(ge=1)
 
 
 class BriefPacket(StrictModel):
+    packet_version: Literal[2] = PACKET_VERSION
     analysis_id: str
     company: str
     period: str
@@ -181,6 +194,7 @@ class BriefPacket(StrictModel):
     material_flags: list[str]
     surfacing_policy: SurfacingPolicy
     statement_bounds: StatementBounds
+    display_policy: DisplayPolicy
     sources: list[PacketSource]
     facts: list[PacketFact]
     narratives: list[PacketNarrative]
@@ -306,12 +320,103 @@ def _decimals(precision: Decimal) -> int:
     return max(0, -precision.normalize().as_tuple().exponent)
 
 
-def format_display(value: Decimal, unit: Unit, decimals: int) -> str:
-    q = value.quantize(Decimal(1).scaleb(-decimals))
+def round_to_step(value: Decimal, step: Decimal) -> Decimal:
+    """value rounded to the nearest multiple of step (half-even, like Decimal.quantize)."""
+    return ((value / step).quantize(Decimal(1)) * step).quantize(Decimal(1).scaleb(-_decimals(step)))
+
+
+def format_display(value: Decimal, unit: Unit, step: Decimal, approximate: bool = False) -> str:
+    """The canonical public rendering of a value at its display step; approximate values carry a "~"."""
+    q = round_to_step(value, step)
+    decimals = _decimals(step)
+    prefix = APPROX_PREFIX if approximate else ""
     if unit is Unit.usd_m:
-        return f"{'-' if q < 0 else ''}${abs(q):,.{decimals}f}M"
+        return f"{prefix}{'-' if q < 0 else ''}${abs(q):,.{decimals}f}M"
     suffix = {Unit.pct: "%", Unit.pts: " pts", Unit.bps: " bps"}[unit]
-    return f"{q:,.{decimals}f}{suffix}"
+    return f"{prefix}{q:,.{decimals}f}{suffix}"
+
+
+def uncertainty_step(uncertainty: Decimal) -> Decimal:
+    """The smallest power of ten not below the uncertainty half-width: 0.5 -> 1, 5 -> 10, 10 -> 10."""
+    exponent = uncertainty.adjusted()
+    if uncertainty > Decimal(10) ** exponent:
+        exponent += 1
+    return Decimal(10) ** exponent
+
+
+def _two_significant_up(value: Decimal) -> Decimal:
+    return value.quantize(Decimal(1).scaleb(value.adjusted() - 1), rounding=ROUND_CEILING)
+
+
+def propagate_uncertainty(fid: str, facts: dict[str, FinancialFact], calcs: dict[str, Any],
+                          cache: dict[str, Decimal | None]) -> Decimal | None:
+    """Worst-case half-width of a derived value from the rounding of its inputs. Uses the calculator's linear
+    uncertainty where it has one; otherwise evaluates the registered formula at every corner of the input
+    intervals (each formula is monotone in each input, so the corners bound it)."""
+    if fid in cache:
+        return cache[fid]
+    fact = facts[fid]
+    if fact.origin is Origin.sourced:
+        cache[fid] = half_unit(fact.precision) if fact.precision is not None else None
+        return cache[fid]
+    if calcs[fid].uncertainty is not None:
+        cache[fid] = calcs[fid].uncertainty
+        return cache[fid]
+    formula = REGISTRY.get(fact.formula or "")
+    widths = [propagate_uncertainty(i, facts, calcs, cache) for i in fact.inputs]
+    if formula is None or any(w is None for w in widths):
+        cache[fid] = None
+        return None
+    values = [facts[i].value for i in fact.inputs]
+    with localcontext() as ctx:
+        ctx.prec = DECIMAL_PRECISION
+        corners = [formula.func(*(v + s * w for v, s, w in zip(values, signs, widths)))
+                   for signs in product((-1, 1), repeat=len(values))]
+        spread = max(abs(c - fact.value) for c in corners)
+    cache[fid] = _two_significant_up(spread) if spread else Decimal(0)
+    return cache[fid]
+
+
+def _display_policy(policy: dict[str, Any]) -> tuple[DisplayPolicy, dict[str, dict[str, Any]]]:
+    raw = policy.get("display_policy")
+    if raw is None:
+        raise PacketBuildError("DISPLAY_POLICY_INVALID: brief policy has no display_policy")
+    overrides = raw.get("fact_overrides", {})
+    return DisplayPolicy(approximation_markers=raw["approximation_markers"]), overrides
+
+
+def _presentation(fid: str, f: FinancialFact, uncertainty: Decimal | None,
+                  override: dict[str, Any] | None) -> dict[str, Any]:
+    """Python-owned presentation: display step, approximation status and canonical strings. Sourced figures keep
+    their disclosed precision; a derived figure is rounded no finer than its input-rounding uncertainty allows."""
+    sourced = f.origin is Origin.sourced
+    native = Decimal(10) ** -(_decimals(f.precision) if sourced else DERIVED_DISPLAY_DECIMALS[f.unit])
+    step = native if sourced or not uncertainty else max(native, uncertainty_step(uncertainty))
+    approximate = step > native
+    wording = None
+    if override:
+        problems = []
+        if sourced:
+            problems.append("sourced figures keep their disclosed display")
+        if "display_step" in override:
+            o_step = Decimal(str(override["display_step"]))
+            if o_step < native or (uncertainty is not None and o_step < uncertainty):
+                problems.append(f"display_step {o_step} is finer than the precision the inputs support")
+            step = o_step
+            approximate = approximate or step > native
+        if override.get("approximate") is False and approximate:
+            problems.append("an uncertainty-rounded figure cannot be marked exact")
+        approximate = approximate or bool(override.get("approximate"))
+        wording = override.get("display_wording")
+        if wording is not None and re.search(r"\d", wording):
+            problems.append("display_wording may not contain digits; numeric renderings are generated")
+        if not override.get("reason"):
+            problems.append("an override must give a reason")
+        if problems:
+            raise PacketBuildError(f"DISPLAY_POLICY_INVALID: {fid}: " + "; ".join(problems))
+    display = format_display(f.value, f.unit, step, approximate)
+    return dict(display=display, display_wording=wording or display, display_step=step, approximate=approximate,
+                max_decimals=_decimals(step))
 
 
 def _fact_flags(fact: FinancialFact) -> list[str]:
@@ -360,17 +465,21 @@ def build_brief_packet(
         for s in subjects:
             note_ids_by_fact.setdefault(s, []).append(note["id"])
 
+    display_policy, overrides = _display_policy(policy)
+    unknown = sorted(set(overrides) - set(available))
+    if unknown:
+        raise PacketBuildError(f"DISPLAY_POLICY_INVALID: overrides name facts not in the packet: {unknown}")
+    widths: dict[str, Decimal | None] = {}
     facts = []
     for fid in sorted(available):
         f = available[fid]
         sourced = f.origin is Origin.sourced
-        decimals = _decimals(f.precision) if sourced else DERIVED_DISPLAY_DECIMALS[f.unit]
+        uncertainty = None if sourced else propagate_uncertainty(fid, result.facts, result.calculations, widths)
         flags = _fact_flags(f)
         facts.append(PacketFact(
             id=fid, metric=f.metric, period=f.period, period_type=f.period_type, scope=f.scope, unit=f.unit,
-            origin=f.origin, value=f.value, display=format_display(f.value, f.unit, decimals),
-            precision=f.precision, max_decimals=decimals if sourced else DERIVED_MAX_DECIMALS,
-            uncertainty=None if sourced else result.calculations[fid].uncertainty,
+            origin=f.origin, value=f.value, **_presentation(fid, f, uncertainty, overrides.get(fid)),
+            precision=f.precision, uncertainty=uncertainty,
             price_basis=f.price_basis, basis=_relabel(f.basis, terminology), flags=flags,
             requires_limitation=bool(material & set(flags)), source_ids=list(f.source_ids),
             derived_from=list(f.inputs), comparability_note_ids=note_ids_by_fact.get(fid, []),
@@ -460,7 +569,8 @@ def build_brief_packet(
     payload = dict(
         analysis_id=policy["analysis_id"], company=policy["company"], period=policy["period"],
         scope=policy["scope"], generated_at=generated_at or datetime.now(timezone.utc), packet_hash="",
-        material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds, sources=sources, facts=facts, narratives=narratives,
+        material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds,
+        display_policy=display_policy, sources=sources, facts=facts, narratives=narratives,
         reconciliations=reconciliations, comparability_notes=notes, open_flags=open_flags,
         forbidden_values=forbidden,
     )

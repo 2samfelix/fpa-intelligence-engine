@@ -16,6 +16,7 @@ from fpa_engine.brief import (
     PacketFact,
     StatementKind,
     brief_title,
+    round_to_step,
 )
 from fpa_engine.schemas import BridgeType, EvidenceType, ReconciliationStatus, StrictModel
 
@@ -107,6 +108,7 @@ class NumberToken:
     unit: str | None
     written_unit: Decimal
     start: int
+    has_point: bool = False
 
 
 @dataclass(frozen=True)
@@ -156,7 +158,7 @@ def extract_numbers(text: str) -> tuple[list[NumberToken], list[RangeToken]]:
         unit, scale = _unit_and_scale(m.group("suffix"), bool(m.group("cur")))
         value, decimals = _to_decimal(m.group("num"))
         tokens.append(NumberToken(m.group(0).strip(), value * scale, unit,
-                                  Decimal(1).scaleb(-decimals) * scale, m.start()))
+                                  Decimal(1).scaleb(-decimals) * scale, m.start(), decimals > 0))
     for r in ranges:
         for end in (r.low, r.high):
             tokens.append(NumberToken(r.raw, end, r.unit, Decimal("1"), -1))
@@ -181,14 +183,47 @@ def _close(token: NumberToken, value: Decimal) -> bool:
     return abs(token.value - abs(value)) <= token.written_unit / 2 + EPSILON
 
 
+def _expressed_with_step(fact: PacketFact, token_unit: str | None) -> tuple[Decimal, Decimal] | None:
+    """The fact's value and display step in the token's unit, via a registered conversion only."""
+    if _unit_ok(token_unit, fact.unit.value):
+        return fact.value, fact.display_step
+    conversion = UNIT_CONVERSIONS.get((fact.unit.value, token_unit))
+    if conversion is None:
+        return None
+    return fact.value * conversion.factor, fact.display_step * conversion.factor
+
+
 def matches_fact(token: NumberToken, fact: PacketFact) -> bool:
-    expressed = express(fact.value, fact.unit.value, fact.max_decimals, token.unit)
-    return expressed is not None and _close(token, expressed[0])
+    """The token renders this fact: within its written rounding of the value, or equal to the canonical value
+    rounded to the fact's display step (so "~510 bps" matches 509.07 shown at a 10 bps step)."""
+    expressed = _expressed_with_step(fact, token.unit)
+    if expressed is None:
+        return False
+    value, step = expressed
+    return _close(token, value) or abs(token.value - abs(round_to_step(value, step))) <= EPSILON
 
 
 def _false_precision(token: NumberToken, fact: PacketFact) -> bool:
-    expressed = express(fact.value, fact.unit.value, fact.max_decimals, token.unit)
-    return expressed is not None and token.written_unit < Decimal(1).scaleb(-expressed[1])
+    """Finer than the packet's display step: decimals beyond it, or an integer that is not a multiple of it."""
+    expressed = _expressed_with_step(fact, token.unit)
+    if expressed is None:
+        return False
+    step = expressed[1]
+    if token.written_unit >= step:
+        return False
+    return token.has_point or token.value % step != 0
+
+
+def _approximation_marked(text: str, start: int, markers: list[str]) -> bool:
+    """An approved marker sits immediately before the figure (sign and currency symbol aside)."""
+    before = text[:start].rstrip()
+    for marker in markers:
+        if marker[-1].isalpha():
+            if re.search(r"\b" + re.escape(marker) + r"$", before, re.I):
+                return True
+        elif before.endswith(marker):
+            return True
+    return False
 
 
 def _forbidden_hit(token: NumberToken, fv: ForbiddenValue) -> bool:
@@ -316,6 +351,7 @@ def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -
             errors.append(_issue("FORBIDDEN_VALUE", s, f"'{rng.raw}' is a forbidden value: {hit.reason}", hit.id))
 
     cited = _cited_facts(s, ctx)
+    markers = ctx.packet.display_policy.approximation_markers
     rec_values = [v for rid in s.reconciliation_ids for v in (
         ctx.recs[rid].residual, ctx.recs[rid].allowed, ctx.recs[rid].reported_change,
         ctx.recs[rid].identified_change, ctx.recs[rid].starting_value, ctx.recs[rid].ending_value) if v is not None]
@@ -336,9 +372,17 @@ def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -
         matched = [f for f in cited if matches_fact(token, f)]
         if matched:
             fact = matched[0]
-            if all(_false_precision(token, f) for f in matched):
+            precise_ok = [f for f in matched if not _false_precision(token, f)]
+            if not precise_ok:
                 errors.append(_issue("FALSE_PRECISION", s,
-                                     f"'{token.raw}' is more precise than {fact.id} allows", fact.id))
+                                     f"'{token.raw}' is more precise than {fact.id} allows; write it as "
+                                     f"'{fact.display}'", fact.id))
+            elif (token.start >= 0 and all(f.approximate for f in precise_ok)
+                  and not _approximation_marked(s.text, token.start, markers)):
+                approx = precise_ok[0]
+                errors.append(_issue("APPROXIMATION_MARKER_MISSING", s,
+                                     f"'{token.raw}' renders {approx.id}, which is approximate; write it as "
+                                     f"'{approx.display}' or with another approved approximation marker", approx.id))
             window = s.text[max(0, token.start - 40):token.start] if token.start >= 0 else ""
             if all(f.origin.value == "derived" for f in matched) and DISCLOSURE_VERB.search(window):
                 errors.append(_issue("DERIVED_PRESENTED_AS_DISCLOSED", s,

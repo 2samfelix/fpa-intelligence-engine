@@ -1,6 +1,6 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "96fda5218790e13c4515bd63fc44bbd5e7c983fbbdf67b8ecbde312817a579bb", "author": "hand-written fixture (invalid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "6f5204299bf95d6ff49b58d60372ee7c896ff2717a5b3c45fcb8d735800105c6", "author": "hand-written fixture (invalid)"},
   "statements": [
     {"id": "X1", "kind": "interpretive", "text": "About 570 bps of the CI margin recovery appears to come from volume leverage and price.", "premise_ids": ["S35", "S17"]},
     {"id": "M1", "kind": "limitation", "severity": "critical", "text": "The CI segment profit bridges remain unresolved: the Q2 2026 volume, price-realization and manufacturing-cost drivers were not quantified, so part of each profit change is not assigned to any driver.", "reconciliation_ids": ["R03", "R04", "R05"], "flag_ids": ["G04", "G05", "G06"]},

@@ -51,7 +51,7 @@ def test_units_signs_and_ranges():
 
 def test_matching_values_at_written_precision_pass(packet):
     assert codes(packet, st("A", "fact", "CI sales were $8,346M, about $8.3 billion.", fact_ids=["S01"])) == set()
-    assert codes(packet, st("A", "fact", "Reported growth was 34.83%, or roughly 35%.", fact_ids=["D03"])) == set()
+    assert codes(packet, st("A", "fact", "Reported growth was 34.8%, or roughly 35%.", fact_ids=["D03"])) == set()
 
 
 def test_false_precision_is_rejected(packet):
@@ -66,7 +66,8 @@ def test_uncited_fact_value_is_rejected(packet):
 def test_ratio_arithmetic_requires_the_derived_fact(packet):
     prose = "The Q2 2026 CI build was 26.7% of the Q1 2026 build."
     assert codes(packet, st("A", "fact", prose, fact_ids=["S23", "S25"])) == {"ARITHMETIC_IN_PROSE"}
-    assert codes(packet, st("A", "fact", prose, fact_ids=["D13"])) == set()
+    assert codes(packet, st("A", "fact", "The Q2 2026 CI build was about 25% of the Q1 2026 build.",
+                            fact_ids=["D13"])) == set()
 
 
 def test_disclosed_rounded_figure_is_not_a_forbidden_back_solve(packet):
@@ -145,7 +146,7 @@ def test_duplicate_statement_ids_are_rejected(packet):
 # ------------------------------------------------- relationship rules ---
 
 def test_non_comparable_metric_must_be_qualified(packet):
-    unqualified = st("A", "fact", "The Q2 2026 stocking swing was $485M.", fact_ids=["D20"])
+    unqualified = st("A", "fact", "The Q2 2026 stocking swing was ~$500M.", fact_ids=["D20"])
     lim = st("L", "limitation", "Mixed basis.", fact_ids=["D20"], flag_ids=["G02"])
     assert codes(packet, unqualified, lim) == {"NON_COMPARABLE_PRESENTED_AS_PRECISE"}
 
@@ -253,14 +254,14 @@ def test_registered_conversions_are_the_only_ones():
 
 
 def test_approved_bps_to_points_conversion_passes(packet):
-    s = st("A", "fact", "CI margin rose 3.2 percentage points year over year in Q2 2026.", fact_ids=["D09"])
+    s = st("A", "fact", "CI margin rose about 3.2 percentage points year over year in Q2 2026.", fact_ids=["D09"])
     assert codes(packet, s) == set()
     disclosed = st("A", "fact", "Tariffs cut Q2 2026 CI margin by 3.4 percentage points.", fact_ids=["S29"])
     assert codes(packet, disclosed) == set()
 
 
 def test_approved_points_to_bps_conversion_passes(packet):
-    s = st("A", "fact", "The Q2 2026 adjusted gap was about 784 bps, a directional reading.", fact_ids=["D07"])
+    s = st("A", "fact", "The Q2 2026 adjusted gap was about 800 bps, a directional reading.", fact_ids=["D07"])
     lim = st("L", "limitation", "Directional only.", fact_ids=["D07"])
     assert codes(packet, s, lim) == set()
 
