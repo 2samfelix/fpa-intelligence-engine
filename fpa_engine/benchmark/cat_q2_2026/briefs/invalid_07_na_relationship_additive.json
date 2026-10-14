@@ -1,6 +1,6 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "6f5204299bf95d6ff49b58d60372ee7c896ff2717a5b3c45fcb8d735800105c6", "author": "hand-written fixture (invalid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "2e45fe103a5146b4c3aa8d3bce07b0da7b60ca17b516e06c3306ad59864f2dec", "author": "hand-written fixture (invalid)"},
   "statements": [
     {"id": "X1", "kind": "fact", "text": "The $2,156M Q2 2026 CI sales increase is made up of retail-driven growth of 22% plus the $400M dealer-inventory build.", "fact_ids": ["D01", "S22", "S25"]},
     {"id": "X2", "kind": "limitation", "text": "Retail growth, dealer-inventory dollars and reported sales are on different bases.", "reconciliation_ids": ["NA01"]},

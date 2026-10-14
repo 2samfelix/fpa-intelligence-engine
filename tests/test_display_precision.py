@@ -22,7 +22,8 @@ from fpa_engine.schemas import Origin, Unit
 
 T0 = datetime(2026, 10, 12, tzinfo=timezone.utc)
 V1_HASH = "96fda5218790e13c4515bd63fc44bbd5e7c983fbbdf67b8ecbde312817a579bb"
-V2_HASH = "6f5204299bf95d6ff49b58d60372ee7c896ff2717a5b3c45fcb8d735800105c6"
+STEP1_HASH = "6f5204299bf95d6ff49b58d60372ee7c896ff2717a5b3c45fcb8d735800105c6"
+V2_HASH = "2e45fe103a5146b4c3aa8d3bce07b0da7b60ca17b516e06c3306ad59864f2dec"
 DISPLAY_CODES = {"FALSE_PRECISION", "APPROXIMATION_MARKER_MISSING", "UNSUPPORTED_NUMBER", "UNCITED_FACT_VALUE"}
 
 
@@ -54,9 +55,14 @@ def test_d13_carries_policy_wording(packet):
     assert d13.display_wording == "roughly a quarter" and d13.display == "~25%"
 
 
+def test_d14_carries_policy_wording(packet):
+    d14 = packet.fact_map["D14"]
+    assert d14.display_wording == "roughly three quarters" and d14.display == "~75%"
+
+
 def test_display_wording_defaults_to_the_display(packet):
     for f in packet.facts:
-        if f.id != "D13":
+        if f.id not in ("D13", "D14"):
             assert f.display_wording == f.display, f.id
 
 
@@ -118,7 +124,8 @@ def test_packet_version_is_2(packet):
 
 def test_packet_hash_changed_deterministically(benchmark, packet):
     later = build_brief_packet(benchmark, generated_at=datetime(2027, 1, 1, tzinfo=timezone.utc))
-    assert packet.packet_hash == later.packet_hash == V2_HASH != V1_HASH
+    assert packet.packet_hash == later.packet_hash == V2_HASH
+    assert V2_HASH not in (V1_HASH, STEP1_HASH)
 
 
 def test_display_policy_is_carried_in_the_packet(packet):
@@ -160,6 +167,7 @@ def test_missing_display_policy_blocks_the_packet(benchmark):
     ("The Q1 2026 distortion was about 5.09 percentage points.", "D18"),
     ("The Q2 2026 build was 26.7% of the Q1 2026 build.", "D13"),
     ("The Q2 2026 build was about 27% of the Q1 2026 build.", "D13"),
+    ("The CI build was 75.0% of the company-wide build.", "D14"),
     ("The implied Q2 2026 swing was about $485M.", "D20"),
     ("The implied Q1 2026 swing was about $1,258M.", "D21"),
     ("Reported growth was 34.83% in Q2 2026.", "D03"),
@@ -192,6 +200,8 @@ def test_missing_approximation_marker_is_rejected(packet, text, fid):
     ("The Q2 2026 tariff drag was about $284 million.", "D15"),
     ("The Q2 2026 build was about 25% of the Q1 2026 build.", "D13"),
     ("The Q2 2026 build was roughly a quarter of the Q1 2026 build.", "D13"),
+    ("The CI build was roughly three quarters of the company-wide build.", "D14"),
+    ("The CI build was about 75% of the company-wide build.", "D14"),
     ("The implied Q1 2026 swing was about $1.3 billion.", "D21"),
     ("CI margin fell ~-470 bps in Q4 2025.", "D23"),
     ("CI margin fell by about 470 bps in Q4 2025.", "D23"),
