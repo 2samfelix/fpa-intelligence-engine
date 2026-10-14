@@ -185,7 +185,8 @@ def test_hash_mismatch_fails(packet, valid):
     ("invalid_03_unsupported_number.json", {"UNSUPPORTED_NUMBER"}),
     ("invalid_04_arithmetic_in_prose.json", {"ARITHMETIC_IN_PROSE"}),
     ("invalid_08_stale_343_bps.json", {"FORBIDDEN_VALUE"}),
-    ("invalid_05_interpretive_as_explicit.json", {"INTERPRETIVE_AS_EXPLICIT", "ASSUMPTION_AS_FACT"}),
+    ("invalid_05_interpretive_as_explicit.json", {"INTERPRETIVE_AS_EXPLICIT", "ASSUMPTION_AS_FACT",
+                                                   "ATTRIBUTION_WITHOUT_EVIDENCE"}),
 ])
 def test_contract_violations_are_rejected(packet, name, codes):
     result, _ = _run(packet, _fixture(name), max_attempts=1)

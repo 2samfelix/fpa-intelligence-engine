@@ -18,6 +18,7 @@ from fpa_engine.loader import BENCHMARK_ROOT, Benchmark, load_benchmark
 from fpa_engine.pipeline import ValidationFailed, run
 from fpa_engine.schemas import (
     ID_PATTERN,
+    AssertionVoice,
     AssumptionSourcing,
     AssumptionUse,
     BridgeType,
@@ -110,6 +111,7 @@ class PacketNarrative(StrictModel):
     premise_ids: list[str] = Field(default_factory=list)
     assumption_ids: list[str] = Field(default_factory=list)
     inherited_assumption_ids: list[str] = Field(default_factory=list)
+    assertion_ids: list[str] = Field(default_factory=list)
     counter_evidence_ids: list[str] = Field(default_factory=list)
     review_status: ReviewStatus
     requires_limitation: bool = False
@@ -124,6 +126,16 @@ class PacketAssumption(StrictModel):
     introduced_by: str
     allowed_use: AssumptionUse
     must_disclose: bool
+
+
+class PacketAssertion(StrictModel):
+    """An atomic statement a narrative supports. Analyst voice may be stated plainly; source voice is the source's
+    own wording and may appear only when attributed. A quote is an exact excerpt of the narrative's verbatim quote."""
+    id: str
+    narrative_id: str
+    text: str
+    voice: AssertionVoice
+    quote: str | None = None
 
 
 class PacketReconciliation(StrictModel):
@@ -215,6 +227,13 @@ class ProsePolicy(StrictModel):
     internal_language: list[InternalTerm] = Field(min_length=1)
 
 
+class VoicePolicy(StrictModel):
+    """Attribution patterns (case-insensitive regexes marking words put in a source's mouth) and characterization
+    terms (evaluative words a brief may use only when a cited assertion supports them)."""
+    attribution_patterns: list[str] = Field(min_length=1)
+    characterization_terms: list[str] = Field(min_length=1)
+
+
 class CoverageAlternative(StrictModel):
     """One way to cover a role: a single statement whose reference fields include every listed ID."""
     fact_ids: list[str] = Field(default_factory=list)
@@ -263,10 +282,12 @@ class BriefPacket(StrictModel):
     inference_policy: InferencePolicy
     prose_policy: ProsePolicy
     coverage_policy: CoveragePolicy
+    voice_policy: VoicePolicy
     sources: list[PacketSource]
     facts: list[PacketFact]
     narratives: list[PacketNarrative]
     assumptions: list[PacketAssumption]
+    assertions: list[PacketAssertion]
     reconciliations: list[PacketReconciliation]
     comparability_notes: list[ComparabilityNote]
     open_flags: list[OpenFlag]
@@ -279,6 +300,10 @@ class BriefPacket(StrictModel):
     @property
     def narrative_map(self) -> dict[str, PacketNarrative]:
         return {n.id: n for n in self.narratives}
+
+    @property
+    def assertion_map(self) -> dict[str, PacketAssertion]:
+        return {a.id: a for a in self.assertions}
 
     @property
     def assumption_map(self) -> dict[str, PacketAssumption]:
@@ -310,6 +335,7 @@ class BriefStatement(StrictModel):
     reconciliation_ids: list[str] = Field(default_factory=list)
     premise_ids: list[str] = Field(default_factory=list)
     assumption_ids: list[str] = Field(default_factory=list)
+    assertion_ids: list[str] = Field(default_factory=list)
     flag_ids: list[str] = Field(default_factory=list)
     comparability_note_ids: list[str] = Field(default_factory=list)
     severity: StatementSeverity = StatementSeverity.info
@@ -576,6 +602,30 @@ def _prose_policy(policy: dict[str, Any]) -> ProsePolicy:
     return prose
 
 
+def _packet_assertions(bm: Benchmark, narratives: list[PacketNarrative]) -> list[PacketAssertion]:
+    kept = {n.id for n in narratives}
+    out = []
+    for a in sorted(bm.assertions, key=lambda x: x.id):
+        if a.narrative_id not in kept:
+            continue
+        if _WORKBOOK_REF.search(a.text):
+            raise PacketBuildError(f"ASSERTION_TEXT_INVALID: {a.id} text cites the workbook")
+        out.append(PacketAssertion(id=a.id, narrative_id=a.narrative_id, text=a.text, voice=a.voice, quote=a.quote))
+    return out
+
+
+def _voice_policy(policy: dict[str, Any]) -> VoicePolicy:
+    if "voice_policy" not in policy:
+        raise PacketBuildError("VOICE_POLICY_INVALID: brief policy has no voice_policy")
+    voice = VoicePolicy.model_validate(policy["voice_policy"])
+    for pattern in voice.attribution_patterns:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise PacketBuildError(f"VOICE_POLICY_INVALID: {pattern}: {exc}") from exc
+    return voice
+
+
 def _display_policy(policy: dict[str, Any]) -> tuple[DisplayPolicy, dict[str, dict[str, Any]]]:
     raw = policy.get("display_policy")
     if raw is None:
@@ -704,11 +754,13 @@ def build_brief_packet(
             speaker=n.speaker, source_kind=n.source_kind, scope=n.scope, period=n.period,
             source_ids=list(n.source_ids), related_fact_ids=[i for i in n.related_fact_ids if i in fact_ids],
             premise_ids=list(n.premise_ids), assumption_ids=list(n.assumption_ids),
+            assertion_ids=sorted(a.id for a in bm.assertions if a.narrative_id == n.id),
             inherited_assumption_ids=[a for a in inh if a not in n.assumption_ids],
             counter_evidence_ids=list(n.counter_evidence_ids), review_status=n.review_status,
             requires_limitation=n.review_status is ReviewStatus.needs_review or bool(n.assumption_ids or inh),
         ))
     assumptions = _packet_assumptions(bm, narratives)
+    assertions = _packet_assertions(bm, narratives)
 
     reconciliations = []
     for r in sorted(result.reconciliations, key=lambda x: x.id):
@@ -771,8 +823,9 @@ def build_brief_packet(
         scope=policy["scope"], generated_at=generated_at or datetime.now(timezone.utc), packet_hash="",
         material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds,
         display_policy=display_policy, inference_policy=InferencePolicy.model_validate(policy["inference_policy"]),
-        prose_policy=_prose_policy(policy), coverage_policy=coverage, sources=sources, facts=facts, narratives=narratives,
-        assumptions=assumptions,
+        prose_policy=_prose_policy(policy), coverage_policy=coverage, voice_policy=_voice_policy(policy),
+        sources=sources, facts=facts, narratives=narratives,
+        assumptions=assumptions, assertions=assertions,
         reconciliations=reconciliations, comparability_notes=notes, open_flags=open_flags,
         forbidden_values=forbidden,
     )

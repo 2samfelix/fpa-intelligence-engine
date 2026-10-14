@@ -97,9 +97,9 @@ def test_limitation_may_not_narrate_an_excluded_estimate(packet):
 
 def test_explicit_claim_numbers_must_come_from_the_quote_or_facts(packet):
     assert codes(packet, st("A", "explicit_claim", "Management said CI dealer inventory rose by about $400 million.",
-                            evidence_ids=["N08"])) == set()
+                            evidence_ids=["N08"], assertion_ids=["N08-A02"])) == set()
     assert codes(packet, st("A", "explicit_claim", "Management said CI dealer inventory rose by $450 million.",
-                            evidence_ids=["N08"])) == {"UNSUPPORTED_NUMBER"}
+                            evidence_ids=["N08"], assertion_ids=["N08-A02"])) == {"UNSUPPORTED_NUMBER"}
 
 
 def test_reported_adjective_is_not_a_disclosure_claim(packet):
@@ -118,7 +118,8 @@ def test_fact_cannot_lean_on_interpretive_evidence(packet):
 
 
 def test_explicit_claim_needs_evidence(packet):
-    assert codes(packet, st("A", "explicit_claim", "Management was upbeat.")) == {"EXPLICIT_WITHOUT_EVIDENCE"}
+    assert codes(packet, st("A", "explicit_claim", "Management was upbeat.")) == {"EXPLICIT_WITHOUT_EVIDENCE",
+                                                                                   "EXPLICIT_WITHOUT_ASSERTION"}
 
 
 def test_interpretive_must_read_as_inference(packet):

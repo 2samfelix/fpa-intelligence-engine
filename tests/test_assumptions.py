@@ -177,7 +177,7 @@ def test_assumption_reached_through_a_fact_statement_premise(packet):
     "Dealer inventories were the larger Q1 driver because Caterpillar listed them first.",
 ])
 def test_assumption_in_an_explicit_claim(packet, text):
-    s = st("A", "explicit_claim", text, evidence_ids=["N01"], assumption_ids=["AS01"])
+    s = st("A", "explicit_claim", text, evidence_ids=["N01"], assertion_ids=["N01-A01"], assumption_ids=["AS01"])
     assert codes(packet, s, LIMITATION) == {"ASSUMPTION_AS_FACT"}
 
 
@@ -258,7 +258,8 @@ def test_existing_valid_brief_declares_its_assumption_and_passes(packet):
 
 def test_briefs_without_assumption_dependency_are_unaffected(packet):
     s = st("A", "fact", "Disclosed CI dealer inventory rose $1.5 billion in Q1 2026.", fact_ids=["S23"])
-    explicit = st("B", "explicit_claim", "Caterpillar's Q2 2026 release named end users first.", evidence_ids=["N02"])
+    explicit = st("B", "explicit_claim", "Caterpillar's Q2 2026 release named end users first.", evidence_ids=["N02"],
+                  assertion_ids=["N02-A01"])
     assert codes(packet, s, explicit) == set()
 
 

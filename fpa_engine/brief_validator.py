@@ -20,7 +20,15 @@ from fpa_engine.brief import (
     brief_title,
     round_to_step,
 )
-from fpa_engine.schemas import AssumptionUse, BridgeType, EvidenceType, ReconciliationStatus, StrictModel
+from fpa_engine.schemas import (
+    AssertionVoice,
+    AssumptionUse,
+    BridgeType,
+    EvidenceType,
+    ReconciliationStatus,
+    ReviewStatus,
+    StrictModel,
+)
 
 HUNDRED = Decimal("100")
 EPSILON = Decimal("1e-9")
@@ -265,6 +273,11 @@ class _Context:
         self.inference_framing = re.compile(r"\b(?:" + "|".join(re.escape(m) for m in markers) + r")\b", re.I)
         self.internal_language = [(t.concept, re.compile(t.pattern, re.I))
                                   for t in packet.prose_policy.internal_language]
+        self.assertions = packet.assertion_map
+        voice = packet.voice_policy
+        self.attribution = [re.compile(p, re.I) for p in voice.attribution_patterns]
+        self.characterization = re.compile(
+            r"\b(?:" + "|".join(re.escape(w) for w in voice.characterization_terms) + r")\b", re.I)
         self.id_kinds = packet_id_kinds(packet)
         ids = sorted(self.id_kinds, key=len, reverse=True)
         self.packet_ids = re.compile(r"(?<![\w-])(?:" + "|".join(re.escape(i) for i in ids) + r")(?![\w-])")
@@ -283,7 +296,8 @@ class _Context:
 def packet_id_kinds(packet: BriefPacket) -> dict[str, str]:
     """Every identifier the packet defines, with the kind of item it names."""
     groups = [("source", packet.sources), ("fact", packet.facts), ("narrative", packet.narratives),
-              ("assumption", packet.assumptions), ("reconciliation", packet.reconciliations),
+              ("assumption", packet.assumptions), ("assertion", packet.assertions),
+              ("reconciliation", packet.reconciliations),
               ("comparability note", packet.comparability_notes), ("open flag", packet.open_flags),
               ("forbidden value", packet.forbidden_values)]
     return {item.id: kind for kind, items in groups for item in items}
@@ -328,6 +342,10 @@ def _check_references(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]
     for gid in s.flag_ids:
         if gid not in ctx.flags:
             errors.append(_issue("UNKNOWN_FLAG_ID", s, f"open flag {gid} is not in the packet", gid))
+            known = False
+    for xid in s.assertion_ids:
+        if xid not in ctx.assertions:
+            errors.append(_issue("UNKNOWN_ASSERTION_ID", s, f"assertion {xid} is not in the packet", xid))
             known = False
     for aid in s.assumption_ids:
         if aid not in ctx.assumptions:
@@ -374,6 +392,83 @@ def _cited_facts(s: BriefStatement, ctx: _Context) -> list[PacketFact]:
 
 def _cited_narratives(s: BriefStatement, ctx: _Context) -> list[str]:
     return list(dict.fromkeys([*s.evidence_ids, *[p for p in s.premise_ids if p in ctx.narratives]]))
+
+
+_QUOTED = re.compile(r"[\"“”]([^\"“”]+)[\"“”]")
+_ELLIPSIS = re.compile(r"\s*(?:\.\.\.|…)\s*")
+
+
+def _normalize_quote(text: str) -> str:
+    return re.sub(r"\s+", " ", text.replace("’", "'")).strip().strip(".,;: ").casefold()
+
+
+def quoted_spans(text: str) -> list[str]:
+    return [m.group(1) for m in _QUOTED.finditer(text)]
+
+
+def _quote_matches(span: str, verbatim: str) -> bool:
+    """Every fragment of the span (split at an ellipsis) is an exact excerpt of the verbatim quote, ignoring case
+    and whitespace runs."""
+    source = _normalize_quote(verbatim)
+    fragments = [f for f in (_normalize_quote(x) for x in _ELLIPSIS.split(span)) if f]
+    return bool(fragments) and all(f in source for f in fragments)
+
+
+def _quotable(nid: str, ctx: _Context) -> bool:
+    n = ctx.narratives.get(nid)
+    return bool(n and n.evidence_type is EvidenceType.explicit and n.review_status is ReviewStatus.validated
+                and n.verbatim_quote)
+
+
+def _check_voice(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
+    """Assertions, source versus analyst voice, attribution, verbatim quotes and characterization."""
+    cited_narratives = set(_cited_narratives(s, ctx))
+    cited = [ctx.assertions[x] for x in s.assertion_ids]
+    for a in cited:
+        if a.narrative_id not in cited_narratives:
+            errors.append(_issue("ASSERTION_WITHOUT_EVIDENCE", s,
+                                 f"{a.id} belongs to {a.narrative_id}; cite that narrative in evidence_ids or "
+                                 f"premise_ids", a.id))
+    if s.kind is StatementKind.explicit_claim and not s.assertion_ids:
+        errors.append(_issue("EXPLICIT_WITHOUT_ASSERTION", s,
+                             "an explicit claim must list the assertions it restates in assertion_ids"))
+    attributed = any(p.search(s.text) for p in ctx.attribution)
+    for a in cited:
+        if a.voice is AssertionVoice.source and not attributed:
+            errors.append(_issue("SOURCE_VOICE_NOT_ATTRIBUTED", s,
+                                 f"{a.id} is the source's own wording; attribute it to the source in the statement",
+                                 a.id))
+    denies = s.kind is StatementKind.limitation and NEGATION.search(s.text)
+    backed = any(a.voice is AssertionVoice.source and a.narrative_id in cited_narratives
+                 and _quotable(a.narrative_id, ctx) for a in cited)
+    if attributed and not denies and not backed:
+        errors.append(_issue("ATTRIBUTION_WITHOUT_EVIDENCE", s,
+                             "the statement attributes words or expectations to a source; cite a source-voice "
+                             "assertion of validated, quoted explicit evidence, or state it without attribution"))
+    spans = quoted_spans(s.text)
+    verbatims = [ctx.narratives[n].verbatim_quote for n in sorted(cited_narratives) if _quotable(n, ctx)]
+    for span in spans:
+        if not any(_quote_matches(span, v) for v in verbatims):
+            errors.append(_issue("QUOTE_NOT_VERBATIM", s,
+                                 f"\"{span}\" is not an exact excerpt of the verbatim quote of any validated "
+                                 f"explicit evidence the statement cites"))
+    if spans and not attributed:
+        errors.append(_issue("QUOTE_NOT_ATTRIBUTED", s, "a quotation must be attributed to its source"))
+    if s.kind is StatementKind.limitation:
+        return
+    analyst = [a.text for a in cited if a.voice is AssertionVoice.analyst]
+    if s.kind is StatementKind.interpretive:
+        analyst += [ctx.assumptions[x].text for x in s.assumption_ids if x in ctx.assumptions]
+    source = [f"{a.text} {a.quote or ''}" for a in cited if a.voice is AssertionVoice.source]
+    for term in dict.fromkeys(m.group(0).lower() for m in ctx.characterization.finditer(s.text)):
+        word = re.compile(r"\b" + re.escape(term) + r"\b", re.I)
+        if any(word.search(x) for x in analyst) or (attributed and any(word.search(x) for x in source)):
+            continue
+        owners = sorted(a.id for n in cited_narratives for a in ctx.assertions.values()
+                        if a.narrative_id == n and word.search(f"{a.text} {a.quote or ''}"))
+        hint = (f"; only {', '.join(owners)} uses it: cite it and, if it is source wording, attribute it"
+                if owners else "; no cited assertion supports it")
+        errors.append(_issue("UNSUPPORTED_CHARACTERIZATION", s, f"'{term}' characterizes the evidence{hint}", term))
 
 
 def assumption_dependencies(s: BriefStatement, ctx: _Context) -> set[str]:
@@ -570,6 +665,7 @@ def validate_statements(packet: BriefPacket, statements: list[BriefStatement]) -
             _check_kind(s, ctx, errors)
             _check_prose(s, ctx, errors)
             _check_assumptions(s, ctx, errors)
+            _check_voice(s, ctx, errors)
             _check_numbers(s, ctx, errors)
             _check_semantics(s, ctx, errors)
             resolvable.append(s)
