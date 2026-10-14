@@ -1,6 +1,6 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "d14c0d3d63beeba2ac2bfdd2f4c7ef8337d376adee2aef1a2c56e45ac3abd8d8", "author": "hand-written fixture (invalid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "34c3d50a9bb9c19ec3c38ba2299d7786b00933122db394ff94e3ffb043b96d19", "author": "hand-written fixture (invalid)"},
   "statements": [
     {"id": "X1", "kind": "fact", "text": "Q2 2026 CI segment profit rose $703M year over year.", "fact_ids": ["D11"]},
     {"id": "X2", "kind": "limitation", "text": "Profit drivers were not quantified and the prior-year comparative is untested for restatement.", "fact_ids": ["D11"], "flag_ids": ["G04", "G05", "G06", "G07"]},

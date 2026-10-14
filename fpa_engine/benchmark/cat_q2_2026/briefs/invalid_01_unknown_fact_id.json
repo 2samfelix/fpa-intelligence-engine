@@ -1,6 +1,6 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "d14c0d3d63beeba2ac2bfdd2f4c7ef8337d376adee2aef1a2c56e45ac3abd8d8", "author": "hand-written fixture (invalid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "34c3d50a9bb9c19ec3c38ba2299d7786b00933122db394ff94e3ffb043b96d19", "author": "hand-written fixture (invalid)"},
   "statements": [
     {"id": "X1", "kind": "fact", "text": "CI sales grew 34.8% in Q2 2026.", "fact_ids": ["D999"]},
     {"id": "M1", "kind": "limitation", "severity": "critical", "text": "The CI segment profit bridges remain unresolved: the Q2 2026 volume, price-realization and manufacturing-cost drivers were not quantified, so part of each profit change is not assigned to any driver.", "reconciliation_ids": ["R03", "R04", "R05"], "flag_ids": ["G04", "G05", "G06"]},

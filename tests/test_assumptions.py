@@ -47,6 +47,9 @@ def test_assumption_entities_appear_in_the_packet(packet):
     assert (as01.sourcing, as01.allowed_use, as01.must_disclose, as01.introduced_by) == (
         AssumptionSourcing.unsourced, AssumptionUse.interpretive_only, True, "N03")
     assert am["AS02"].introduced_by == "N06" and am["AS02"].sourcing is AssumptionSourcing.unsourced
+    assert am["AS02"].text == ("Any undisclosed Construction Industries share of the $392M IEEPA tariff recoveries "
+                               "is not large enough to materially change the reported CI segment margin.")
+    assert "corporate items" not in am["AS02"].text
 
 
 def test_unsourced_status_survives_packet_building(packet):
