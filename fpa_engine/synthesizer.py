@@ -154,9 +154,10 @@ verbatim_quote.
 simple ones. If a figure is not already a packet fact, describe the movement in words ("rose", "fell", \
 "narrowed") without a number.
 - Never write any value listed in forbidden_values, in any statement of any kind, in any form - not even in a \
-limitation that rejects it. You may say, without the number, that a stale or unsupported estimate was excluded.
+limitation that rejects it.
 - Facts with origin "derived" were calculated, not disclosed by the company. Never call them disclosed.
-- Fiscal periods (Q2 2026), years, and packet IDs are not quantitative claims and may be used.
+- Fiscal periods (Q2 2026) and years are not quantitative claims and may be used. Packet IDs belong only in the \
+ID fields; never write them in statement text.
 
 HONESTY RULES
 - Facts flagged "non_comparable" or "directional" must be described as directional or not comparable in the \

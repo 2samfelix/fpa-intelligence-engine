@@ -18,7 +18,7 @@ from fpa_engine.brief import BriefPacket, StatementKind, build_brief_packet
 from fpa_engine.brief_validator import validate_brief
 from fpa_engine.synthesizer import PROMPT_VERSION, LLMClient, SynthesisResult, SynthesisStatus, synthesize
 
-EXPECTED_PACKET_HASH = "34c3d50a9bb9c19ec3c38ba2299d7786b00933122db394ff94e3ffb043b96d19"
+EXPECTED_PACKET_HASH = "e788207eefae61d30293e18638fc2e0367641af82f7f18eb38068d484f49ec6d"
 EXPECTED_PROMPT_VERSION = "synthesis_v2"
 MAX_RUNS = 5
 GATE_RUNS = 5  # the gate passes only on GATE_RUNS of GATE_RUNS finally accepted

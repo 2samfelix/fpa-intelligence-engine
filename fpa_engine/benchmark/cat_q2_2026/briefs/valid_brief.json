@@ -1,6 +1,6 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "34c3d50a9bb9c19ec3c38ba2299d7786b00933122db394ff94e3ffb043b96d19", "author": "hand-written fixture (valid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "e788207eefae61d30293e18638fc2e0367641af82f7f18eb38068d484f49ec6d", "author": "hand-written fixture (valid)"},
   "statements": [
     {"id": "V1", "kind": "fact", "severity": "info", "text": "Disclosed Construction Industries dealer inventory increased $1.5 billion in Q1 2026 and $400 million in Q2 2026.", "fact_ids": ["S23", "S25"]},
     {"id": "V2", "kind": "fact", "severity": "info", "text": "Reported CI sales growth was 34.8% in Q2 2026, compared with 38.1% in Q1 2026.", "fact_ids": ["D03", "D04"]},
@@ -9,7 +9,7 @@
     {"id": "V5", "kind": "limitation", "severity": "warning", "text": "Retail growth is reported in price-neutral dollars and only to the whole percent, while reported sales and dealer-inventory dollars are current-price; these figures support a directional reading and do not form an additive bridge.", "reconciliation_ids": ["NA01", "NA02"]},
     {"id": "V6", "kind": "limitation", "severity": "warning", "text": "Reading the order in which management lists volume drivers as a ranking by size is an unsourced assumption, not a disclosed fact, and that evidence still needs review.", "evidence_ids": ["N03"], "assumption_ids": ["AS01"]},
     {"id": "V7", "kind": "fact", "severity": "info", "text": "Q2 2026 CI segment profit rose $703M year over year.", "fact_ids": ["D11"]},
-    {"id": "V8", "kind": "limitation", "severity": "critical", "text": "No Q2 2026 CI segment profit driver is quantified in the benchmark, so the $703M increase remains entirely unassigned and the profit bridge is unresolved; the prior-year profit comparative has also not been tested for restatement.", "fact_ids": ["D11"], "reconciliation_ids": ["R04"], "flag_ids": ["G04", "G05", "G06", "G07"], "comparability_note_ids": ["CN06"]},
+    {"id": "V8", "kind": "limitation", "severity": "critical", "text": "No Q2 2026 CI segment profit driver is quantified by Caterpillar, so the $703M increase remains entirely unassigned and the profit bridge is unresolved; the prior-year profit comparative has also not been tested for restatement.", "fact_ids": ["D11"], "reconciliation_ids": ["R04"], "flag_ids": ["G04", "G05", "G06", "G07"], "comparability_note_ids": ["CN06"]},
     {"id": "V9", "kind": "limitation", "severity": "warning", "text": "The Q1 2026 and prior-year CI segment profit bridges are also unresolved, with residuals of $12M and $14M left unassigned to any itemized driver.", "reconciliation_ids": ["R03", "R05"]}
   ]
 }

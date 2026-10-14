@@ -50,6 +50,25 @@
   "inference_policy": {
     "assumption_inference_markers": ["we interpret", "we read", "we infer", "suggests", "suggest", "consistent with", "inference", "may indicate", "points to", "point to"]
   },
+  "prose_policy": {
+    "internal_language": [
+      {"concept": "validator", "pattern": "\\bvalidators?\\b"},
+      {"concept": "validation errors or rules", "pattern": "\\bvalidation (?:errors?|rules?|failures?|checks?|codes?)\\b"},
+      {"concept": "error codes", "pattern": "\\berror codes?\\b"},
+      {"concept": "the brief packet", "pattern": "\\bpackets?\\b"},
+      {"concept": "test fixtures", "pattern": "\\btest fixtures?\\b|\\bfixture (?:files?|briefs?|data)\\b"},
+      {"concept": "the benchmark dataset", "pattern": "\\b(?:in|from|by|per) the benchmark\\b(?!\\s+(?:index|indices|rates?|yields?|prices?|returns?|portfolios?))|\\bbenchmark (?:files?|fixtures?|expectations?|data ?set|IDs?)\\b"},
+      {"concept": "forbidden or rejected values", "pattern": "\\bforbidden\\b|\\brejected (?:values?|estimates?|figures?|numbers?)\\b"},
+      {"concept": "stale estimates", "pattern": "\\bstale\\b(?:\\W+\\w+){0,3}?\\W+(?:estimates?|figures?|values?|numbers?|calculations?)\\b"},
+      {"concept": "excluded or unsupported estimates", "pattern": "\\b(?:alternative|unsupported|competing|earlier|prior|stale|rejected) (?:estimates?|figures?|values?|numbers?) (?:was|were|has been|have been|is|are) (?:excluded|omitted|removed|dropped|withheld|suppressed|rejected|discarded)\\b|\\b(?:excluded|omitted|removed|dropped|rejected|discarded)\\s+(?:(?:an?|the|one|two|any)\\s+)?(?:stale|unsupported|alternative|rejected|forbidden)\\b|\\bunsupported (?:estimates?|figures?|values?|numbers?)\\b"},
+      {"concept": "retries", "pattern": "\\b(?:corrective )?retr(?:y|ies|ied)\\b"},
+      {"concept": "schemas", "pattern": "\\bschemas?\\b"},
+      {"concept": "regression tests", "pattern": "\\bregression tests?\\b"},
+      {"concept": "language models", "pattern": "\\bLLMs?\\b|\\blanguage models?\\b"},
+      {"concept": "allowlists", "pattern": "\\ballow[- ]?list(?:s|ed)?\\b"},
+      {"concept": "packet structures", "pattern": "\\bopen flags?\\b|\\bcomparability notes?\\b|\\bsurfacing policy\\b|\\bmandatory limitations?\\b|\\b(?:fact|evidence|narrative|premise|reconciliation|flag|assumption|statement)[ _-]ids?\\b"}
+    ]
+  },
   "forbidden_values": [
     {"id": "FV01", "unit": "bps", "value": "343", "reason": "Stale rounding artifact for the Q2 2026 CI tariff impact; the disclosed figure is 340 bps."},
     {"id": "FV02", "unit": "bps", "value": "342.85", "reason": "The Q4 2025 and Q1 2026 distortion method re-applied to Q2 2026; not the disclosed 340 bps."},

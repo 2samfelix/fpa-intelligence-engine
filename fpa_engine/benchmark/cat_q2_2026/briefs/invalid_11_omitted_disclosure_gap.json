@@ -1,6 +1,6 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "34c3d50a9bb9c19ec3c38ba2299d7786b00933122db394ff94e3ffb043b96d19", "author": "hand-written fixture (invalid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "e788207eefae61d30293e18638fc2e0367641af82f7f18eb38068d484f49ec6d", "author": "hand-written fixture (invalid)"},
   "statements": [
     {"id": "X1", "kind": "fact", "text": "The implied stocking swing for Q2 2026 is a directional ~$500M.", "fact_ids": ["D20"]},
     {"id": "X2", "kind": "limitation", "text": "The implied swing mixes a price-neutral retail rate with a current-price sales base.", "fact_ids": ["D20"]},

@@ -256,11 +256,15 @@ def test_statement_count_bounds_are_inclusive(packet, valid, keep):
 
 def test_forbidden_value_cannot_enter_through_a_limitation(packet, valid):
     valid["statements"].append({"id": "V10", "kind": "limitation", "fact_ids": ["S29"],
-                                "text": "A stale 343 bps estimate was excluded from the validated analysis."})
+                                "text": "A 343 bps reading of the Q2 2026 CI tariff impact is not the call figure."})
     result, _ = _run(packet, valid, max_attempts=1)
     _assert_rejected(result)
     assert _codes(result) == {("FORBIDDEN_VALUE", "FV01")}
     valid["statements"][-1]["text"] = "A stale prior estimate was excluded from the validated analysis."
+    result, _ = _run(packet, valid, max_attempts=1)
+    assert _codes(result) == {("INTERNAL_PIPELINE_LANGUAGE", None)}
+    valid["statements"][-1]["text"] = ("The Q2 2026 CI tariff impact of 340 bps comes from the earnings call and "
+                                       "uses a different method from the earlier quarters.")
     assert _run(packet, valid)[0].accepted
 
 

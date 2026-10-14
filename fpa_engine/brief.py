@@ -197,6 +197,17 @@ class InferencePolicy(StrictModel):
     assumption_inference_markers: list[str] = Field(min_length=1)
 
 
+class InternalTerm(StrictModel):
+    concept: str
+    pattern: str
+
+
+class ProsePolicy(StrictModel):
+    """Engine and audit vocabulary that must never reach executive prose. Patterns are case-insensitive regexes,
+    written as phrases or contexts rather than bare words where the word also has a financial meaning."""
+    internal_language: list[InternalTerm] = Field(min_length=1)
+
+
 class StatementBounds(StrictModel):
     min: int = Field(ge=1)
     max: int = Field(ge=1)
@@ -215,6 +226,7 @@ class BriefPacket(StrictModel):
     statement_bounds: StatementBounds
     display_policy: DisplayPolicy
     inference_policy: InferencePolicy
+    prose_policy: ProsePolicy
     sources: list[PacketSource]
     facts: list[PacketFact]
     narratives: list[PacketNarrative]
@@ -418,6 +430,16 @@ def _packet_assumptions(bm: Benchmark, narratives: list[PacketNarrative]) -> lis
     return out
 
 
+def _prose_policy(policy: dict[str, Any]) -> ProsePolicy:
+    prose = ProsePolicy.model_validate(policy["prose_policy"])
+    for term in prose.internal_language:
+        try:
+            re.compile(term.pattern)
+        except re.error as exc:
+            raise PacketBuildError(f"PROSE_POLICY_INVALID: {term.concept}: {exc}") from exc
+    return prose
+
+
 def _display_policy(policy: dict[str, Any]) -> tuple[DisplayPolicy, dict[str, dict[str, Any]]]:
     raw = policy.get("display_policy")
     if raw is None:
@@ -611,7 +633,8 @@ def build_brief_packet(
         scope=policy["scope"], generated_at=generated_at or datetime.now(timezone.utc), packet_hash="",
         material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds,
         display_policy=display_policy, inference_policy=InferencePolicy.model_validate(policy["inference_policy"]),
-        sources=sources, facts=facts, narratives=narratives, assumptions=assumptions,
+        prose_policy=_prose_policy(policy), sources=sources, facts=facts, narratives=narratives,
+        assumptions=assumptions,
         reconciliations=reconciliations, comparability_notes=notes, open_flags=open_flags,
         forbidden_values=forbidden,
     )

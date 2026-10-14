@@ -261,6 +261,11 @@ class _Context:
         self.assumptions = packet.assumption_map
         markers = packet.inference_policy.assumption_inference_markers
         self.inference_framing = re.compile(r"\b(?:" + "|".join(re.escape(m) for m in markers) + r")\b", re.I)
+        self.internal_language = [(t.concept, re.compile(t.pattern, re.I))
+                                  for t in packet.prose_policy.internal_language]
+        self.id_kinds = packet_id_kinds(packet)
+        ids = sorted(self.id_kinds, key=len, reverse=True)
+        self.packet_ids = re.compile(r"(?<![\w-])(?:" + "|".join(re.escape(i) for i in ids) + r")(?![\w-])")
 
     def narrative_chain(self, nid: str) -> set[str]:
         chain, pending = set(), [nid]
@@ -271,6 +276,29 @@ class _Context:
             chain.add(cur)
             pending += [p for p in self.narratives[cur].premise_ids if p in self.narratives]
         return chain
+
+
+def packet_id_kinds(packet: BriefPacket) -> dict[str, str]:
+    """Every identifier the packet defines, with the kind of item it names."""
+    groups = [("source", packet.sources), ("fact", packet.facts), ("narrative", packet.narratives),
+              ("assumption", packet.assumptions), ("reconciliation", packet.reconciliations),
+              ("comparability note", packet.comparability_notes), ("open flag", packet.open_flags),
+              ("forbidden value", packet.forbidden_values)]
+    return {item.id: kind for kind, items in groups for item in items}
+
+
+def _check_prose(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
+    """Executive prose states the finance, not the engine: no pipeline vocabulary and no packet identifiers."""
+    for concept, pattern in ctx.internal_language:
+        m = pattern.search(s.text)
+        if m:
+            errors.append(_issue("INTERNAL_PIPELINE_LANGUAGE", s,
+                                 f"'{m.group(0)}' is internal pipeline language ({concept}); state the financial "
+                                 f"point or limitation itself, not how the analysis was produced or checked"))
+    for found in dict.fromkeys(m.group(0) for m in ctx.packet_ids.finditer(s.text)):
+        errors.append(_issue("PACKET_ID_IN_PROSE", s,
+                             f"'{found}' is a packet {ctx.id_kinds[found]} ID; keep IDs in the reference fields and "
+                             f"describe the item in words in the text", found))
 
 
 def _issue(code: str, statement: BriefStatement | None, message: str, subject: str | None = None) -> BriefIssue:
@@ -538,6 +566,7 @@ def validate_statements(packet: BriefPacket, statements: list[BriefStatement]) -
     for s in statements:
         if _check_references(s, ctx, errors):
             _check_kind(s, ctx, errors)
+            _check_prose(s, ctx, errors)
             _check_assumptions(s, ctx, errors)
             _check_numbers(s, ctx, errors)
             _check_semantics(s, ctx, errors)

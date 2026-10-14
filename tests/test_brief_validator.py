@@ -88,9 +88,10 @@ def test_forbidden_values_are_rejected_even_in_limitations(packet, text):
     assert codes(packet, st("L", "limitation", text, fact_ids=["S29"])) == {"FORBIDDEN_VALUE"}
 
 
-def test_limitation_may_mention_an_excluded_estimate_without_its_value(packet):
+def test_limitation_may_not_narrate_an_excluded_estimate(packet):
+    """Gate C4 step 3 withdrew the old permission: a brief states the limitation, not the engine's handling."""
     s = st("L", "limitation", "A stale prior estimate was excluded from the validated analysis.", fact_ids=["S29"])
-    assert codes(packet, s) == set()
+    assert codes(packet, s) == {"INTERNAL_PIPELINE_LANGUAGE"}
 
 
 def test_explicit_claim_numbers_must_come_from_the_quote_or_facts(packet):
