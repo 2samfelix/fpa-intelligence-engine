@@ -9,6 +9,10 @@ from typing import Any
 from pydantic import ValidationError
 
 from fpa_engine.schemas import (
+    AnalyticalAssumption,
+    AssertionVoice,
+    EvidenceType,
+    NarrativeAssertion,
     BridgeDefinition,
     DisclosureGap,
     FinancialFact,
@@ -42,6 +46,8 @@ class Benchmark:
     gaps: tuple[DisclosureGap, ...] = ()
     narratives: tuple[NarrativeEvidence, ...] = ()
     bridges: tuple[BridgeDefinition, ...] = ()
+    assumptions: tuple[AnalyticalAssumption, ...] = ()
+    assertions: tuple[NarrativeAssertion, ...] = ()
     expected: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -94,6 +100,27 @@ def _parse_list(model: type, items: list[dict], label: str, problems: list[str])
     return parsed
 
 
+def _check_assertions(narratives: dict[str, NarrativeEvidence], assertions: list[NarrativeAssertion],
+                      problems: list[str]) -> None:
+    """Assertions attach to one narrative each. Source-voice wording must come from an explicit narrative, and a
+    quote must be an exact excerpt of that narrative's validated verbatim quote. Every narrative needs one."""
+    for a in assertions:
+        n = narratives.get(a.narrative_id)
+        if n is None:
+            problems.append(f"assertion {a.id}: unknown narrative {a.narrative_id}")
+            continue
+        if a.voice is AssertionVoice.source and n.evidence_type is not EvidenceType.explicit:
+            problems.append(f"assertion {a.id}: source voice needs explicit evidence; {n.id} is interpretive")
+        if a.quote is not None:
+            if a.voice is not AssertionVoice.source:
+                problems.append(f"assertion {a.id}: only a source-voice assertion may carry a quote")
+            if not n.verbatim_quote or a.quote not in n.verbatim_quote:
+                problems.append(f"assertion {a.id}: quote is not an excerpt of {n.id}'s verbatim quote")
+    covered = {a.narrative_id for a in assertions}
+    for nid in sorted(set(narratives) - covered):
+        problems.append(f"narrative {nid}: has no assertion")
+
+
 def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
     problems: list[str] = []
     fact_doc = raw.get("facts", {})
@@ -108,6 +135,8 @@ def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
     gaps = _parse_list(DisclosureGap, fact_doc.get("known_gaps", []), "gap", problems)
     narratives = _parse_list(NarrativeEvidence, raw.get("narratives", []), "narrative", problems)
     bridges = _parse_list(BridgeDefinition, raw.get("bridges", []), "bridge", problems)
+    assumptions = _parse_list(AnalyticalAssumption, raw.get("assumptions", []), "assumption", problems)
+    assertions = _parse_list(NarrativeAssertion, raw.get("assertions", []), "assertion", problems)
 
     for f in sourced:
         if f.origin is not Origin.sourced:
@@ -116,7 +145,8 @@ def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
         if f.origin is not Origin.derived:
             problems.append(f"fact {f.id}: listed under 'derived' but origin is {f.origin.value}")
 
-    all_ids = [o.id for group in (sources, sourced, derived, gaps, narratives, bridges) for o in group]
+    all_ids = [o.id for group in (sources, sourced, derived, gaps, narratives, bridges, assumptions, assertions)
+               for o in group]
     for dup, n in Counter(all_ids).items():
         if n > 1:
             problems.append(f"duplicate id {dup} ({n} occurrences)")
@@ -134,6 +164,18 @@ def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
         for sid in n.source_ids:
             if sid not in source_ids:
                 problems.append(f"narrative {n.id}: unresolved source reference {sid}")
+    assumption_ids = {a.id for a in assumptions}
+    narrative_map = {n.id: n for n in narratives}
+    for n in narratives:
+        for aid in n.assumption_ids:
+            if aid not in assumption_ids:
+                problems.append(f"narrative {n.id}: unresolved assumption reference {aid}")
+    for a in assumptions:
+        introducer = narrative_map.get(a.introduced_by)
+        if introducer is None or a.id not in introducer.assumption_ids:
+            problems.append(f"assumption {a.id}: introduced_by {a.introduced_by} must be a narrative that lists it")
+    if "assertions" in raw:
+        _check_assertions(narrative_map, assertions, problems)
 
     if problems:
         raise BenchmarkLoadError(problems)
@@ -144,6 +186,8 @@ def parse_benchmark(name: str, raw: dict[str, Any]) -> Benchmark:
         gaps=tuple(gaps),
         narratives=tuple(narratives),
         bridges=tuple(bridges),
+        assumptions=tuple(assumptions),
+        assertions=tuple(assertions),
         expected=raw.get("expected", {}),
     )
 
@@ -162,6 +206,8 @@ def read_raw(directory: Path) -> dict[str, Any]:
         "facts": read("facts.json"),
         "narratives": read("narratives.json"),
         "bridges": read("bridges.json"),
+        "assumptions": read("assumptions.json"),
+        "assertions": read("assertions.json"),
         "expected": read("expected.json"),
     }
 

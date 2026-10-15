@@ -5,17 +5,22 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal, localcontext
 from enum import Enum
+from itertools import combinations, product
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from fpa_engine.calculator import DECIMAL_PRECISION, REGISTRY
 from fpa_engine.loader import BENCHMARK_ROOT, Benchmark, load_benchmark
 from fpa_engine.pipeline import ValidationFailed, run
 from fpa_engine.schemas import (
     ID_PATTERN,
+    AssertionVoice,
+    AssumptionSourcing,
+    AssumptionUse,
     BridgeType,
     CalcStatus,
     EvidenceType,
@@ -30,9 +35,11 @@ from fpa_engine.schemas import (
     Unit,
     VerificationMethod,
 )
+from fpa_engine.tolerance import half_unit
 
+PACKET_VERSION = 2
 DERIVED_DISPLAY_DECIMALS = {Unit.usd_m: 0, Unit.pct: 1, Unit.pts: 1, Unit.bps: 0}
-DERIVED_MAX_DECIMALS = 2
+APPROX_PREFIX = "~"
 BASIS_FLAGS = {
     "mixed_basis_identity_test": "non_comparable",
     "directional_indicator": "directional",
@@ -45,6 +52,13 @@ class PacketBuildError(Exception):
 
 
 # ---------------------------------------------------------------- packet ---
+
+class StatementKind(str, Enum):
+    fact = "fact"
+    explicit_claim = "explicit_claim"
+    interpretive = "interpretive"
+    limitation = "limitation"
+
 
 class PacketSource(StrictModel):
     id: str
@@ -67,6 +81,9 @@ class PacketFact(StrictModel):
     origin: Origin
     value: Decimal
     display: str
+    display_wording: str
+    display_step: Decimal
+    approximate: bool
     precision: Decimal | None = None
     max_decimals: int
     uncertainty: Decimal | None = None
@@ -92,11 +109,33 @@ class PacketNarrative(StrictModel):
     source_ids: list[str] = Field(default_factory=list)
     related_fact_ids: list[str] = Field(default_factory=list)
     premise_ids: list[str] = Field(default_factory=list)
-    assumptions: list[str] = Field(default_factory=list)
-    inherited_assumptions: list[str] = Field(default_factory=list)
+    assumption_ids: list[str] = Field(default_factory=list)
+    inherited_assumption_ids: list[str] = Field(default_factory=list)
+    assertion_ids: list[str] = Field(default_factory=list)
     counter_evidence_ids: list[str] = Field(default_factory=list)
     review_status: ReviewStatus
     requires_limitation: bool = False
+
+
+class PacketAssumption(StrictModel):
+    """An analytical premise no cited source states. Its sourcing status is structural, never prose that a
+    provenance filter could remove."""
+    id: str
+    text: str
+    sourcing: AssumptionSourcing
+    introduced_by: str
+    allowed_use: AssumptionUse
+    must_disclose: bool
+
+
+class PacketAssertion(StrictModel):
+    """An atomic statement a narrative supports. Analyst voice may be stated plainly; source voice is the source's
+    own wording and may appear only when attributed. A quote is an exact excerpt of the narrative's verbatim quote."""
+    id: str
+    narrative_id: str
+    text: str
+    voice: AssertionVoice
+    quote: str | None = None
 
 
 class PacketReconciliation(StrictModel):
@@ -166,12 +205,70 @@ class SurfacingPolicy(StrictModel):
     conditional_narrative_ids: list[str]
 
 
+class DisplayPolicy(StrictModel):
+    """Words or symbols that may introduce an approximate figure (\"~24 pts\", \"about 24 pts\")."""
+    approximation_markers: list[str] = Field(min_length=1)
+
+
+class InferencePolicy(StrictModel):
+    """Phrases that visibly frame a statement as the analyst's inference; a statement resting on an unsourced
+    assumption must use one in its own text."""
+    assumption_inference_markers: list[str] = Field(min_length=1)
+
+
+class InternalTerm(StrictModel):
+    concept: str
+    pattern: str
+
+
+class ProsePolicy(StrictModel):
+    """Engine and audit vocabulary that must never reach executive prose. Patterns are case-insensitive regexes,
+    written as phrases or contexts rather than bare words where the word also has a financial meaning."""
+    internal_language: list[InternalTerm] = Field(min_length=1)
+
+
+class VoicePolicy(StrictModel):
+    """Attribution patterns (case-insensitive regexes marking words put in a source's mouth) and characterization
+    terms (evaluative words a brief may use only when a cited assertion supports them)."""
+    attribution_patterns: list[str] = Field(min_length=1)
+    characterization_terms: list[str] = Field(min_length=1)
+
+
+class CoverageAlternative(StrictModel):
+    """One way to cover a role: a single statement whose reference fields include every listed ID."""
+    fact_ids: list[str] = Field(default_factory=list)
+    reconciliation_ids: list[str] = Field(default_factory=list)
+    narrative_ids: list[str] = Field(default_factory=list)
+    assumption_ids: list[str] = Field(default_factory=list)
+    availability_dependent: bool = False  # may be dropped when one of its derived facts cannot be computed
+
+    def all_ids(self) -> list[str]:
+        return [*self.fact_ids, *self.reconciliation_ids, *self.narrative_ids, *self.assumption_ids]
+
+
+class CoverageRole(StrictModel):
+    """A piece of the analytical spine every brief must carry. Covered when one statement of an allowed kind cites
+    every ID of at least one alternative; a role linked to the surfacing policy is enforced by the mandatory-limitation
+    rule instead."""
+    role: str
+    purpose: str
+    statement_kinds: list[StatementKind] = Field(min_length=1)
+    any_of: list[CoverageAlternative] = Field(default_factory=list)
+    from_surfacing_policy: bool = False
+
+
+class CoveragePolicy(StrictModel):
+    roles: list[CoverageRole] = Field(min_length=1)
+    min_statement_slots: int
+
+
 class StatementBounds(StrictModel):
     min: int = Field(ge=1)
     max: int = Field(ge=1)
 
 
 class BriefPacket(StrictModel):
+    packet_version: Literal[2] = PACKET_VERSION
     analysis_id: str
     company: str
     period: str
@@ -181,9 +278,16 @@ class BriefPacket(StrictModel):
     material_flags: list[str]
     surfacing_policy: SurfacingPolicy
     statement_bounds: StatementBounds
+    display_policy: DisplayPolicy
+    inference_policy: InferencePolicy
+    prose_policy: ProsePolicy
+    coverage_policy: CoveragePolicy
+    voice_policy: VoicePolicy
     sources: list[PacketSource]
     facts: list[PacketFact]
     narratives: list[PacketNarrative]
+    assumptions: list[PacketAssumption]
+    assertions: list[PacketAssertion]
     reconciliations: list[PacketReconciliation]
     comparability_notes: list[ComparabilityNote]
     open_flags: list[OpenFlag]
@@ -198,6 +302,14 @@ class BriefPacket(StrictModel):
         return {n.id: n for n in self.narratives}
 
     @property
+    def assertion_map(self) -> dict[str, PacketAssertion]:
+        return {a.id: a for a in self.assertions}
+
+    @property
+    def assumption_map(self) -> dict[str, PacketAssumption]:
+        return {a.id: a for a in self.assumptions}
+
+    @property
     def reconciliation_map(self) -> dict[str, PacketReconciliation]:
         return {r.id: r for r in self.reconciliations}
 
@@ -207,13 +319,6 @@ class BriefPacket(StrictModel):
 
 
 # ---------------------------------------------------------- brief output ---
-
-class StatementKind(str, Enum):
-    fact = "fact"
-    explicit_claim = "explicit_claim"
-    interpretive = "interpretive"
-    limitation = "limitation"
-
 
 class StatementSeverity(str, Enum):
     info = "info"
@@ -229,6 +334,8 @@ class BriefStatement(StrictModel):
     evidence_ids: list[str] = Field(default_factory=list)
     reconciliation_ids: list[str] = Field(default_factory=list)
     premise_ids: list[str] = Field(default_factory=list)
+    assumption_ids: list[str] = Field(default_factory=list)
+    assertion_ids: list[str] = Field(default_factory=list)
     flag_ids: list[str] = Field(default_factory=list)
     comparability_note_ids: list[str] = Field(default_factory=list)
     severity: StatementSeverity = StatementSeverity.info
@@ -306,12 +413,259 @@ def _decimals(precision: Decimal) -> int:
     return max(0, -precision.normalize().as_tuple().exponent)
 
 
-def format_display(value: Decimal, unit: Unit, decimals: int) -> str:
-    q = value.quantize(Decimal(1).scaleb(-decimals))
+def round_to_step(value: Decimal, step: Decimal) -> Decimal:
+    """value rounded to the nearest multiple of step (half-even, like Decimal.quantize)."""
+    return ((value / step).quantize(Decimal(1)) * step).quantize(Decimal(1).scaleb(-_decimals(step)))
+
+
+def format_display(value: Decimal, unit: Unit, step: Decimal, approximate: bool = False) -> str:
+    """The canonical public rendering of a value at its display step; approximate values carry a "~"."""
+    q = round_to_step(value, step)
+    decimals = _decimals(step)
+    prefix = APPROX_PREFIX if approximate else ""
     if unit is Unit.usd_m:
-        return f"{'-' if q < 0 else ''}${abs(q):,.{decimals}f}M"
+        return f"{prefix}{'-' if q < 0 else ''}${abs(q):,.{decimals}f}M"
     suffix = {Unit.pct: "%", Unit.pts: " pts", Unit.bps: " bps"}[unit]
-    return f"{q:,.{decimals}f}{suffix}"
+    return f"{prefix}{q:,.{decimals}f}{suffix}"
+
+
+def uncertainty_step(uncertainty: Decimal) -> Decimal:
+    """The smallest power of ten not below the uncertainty half-width: 0.5 -> 1, 5 -> 10, 10 -> 10."""
+    exponent = uncertainty.adjusted()
+    if uncertainty > Decimal(10) ** exponent:
+        exponent += 1
+    return Decimal(10) ** exponent
+
+
+def _two_significant_up(value: Decimal) -> Decimal:
+    return value.quantize(Decimal(1).scaleb(value.adjusted() - 1), rounding=ROUND_CEILING)
+
+
+def propagate_uncertainty(fid: str, facts: dict[str, FinancialFact], calcs: dict[str, Any],
+                          cache: dict[str, Decimal | None]) -> Decimal | None:
+    """Worst-case half-width of a derived value from the rounding of its inputs. Uses the calculator's linear
+    uncertainty where it has one; otherwise evaluates the registered formula at every corner of the input
+    intervals (each formula is monotone in each input, so the corners bound it)."""
+    if fid in cache:
+        return cache[fid]
+    fact = facts[fid]
+    if fact.origin is Origin.sourced:
+        cache[fid] = half_unit(fact.precision) if fact.precision is not None else None
+        return cache[fid]
+    if calcs[fid].uncertainty is not None:
+        cache[fid] = calcs[fid].uncertainty
+        return cache[fid]
+    formula = REGISTRY.get(fact.formula or "")
+    widths = [propagate_uncertainty(i, facts, calcs, cache) for i in fact.inputs]
+    if formula is None or any(w is None for w in widths):
+        cache[fid] = None
+        return None
+    values = [facts[i].value for i in fact.inputs]
+    with localcontext() as ctx:
+        ctx.prec = DECIMAL_PRECISION
+        corners = [formula.func(*(v + s * w for v, s, w in zip(values, signs, widths)))
+                   for signs in product((-1, 1), repeat=len(values))]
+        spread = max(abs(c - fact.value) for c in corners)
+    cache[fid] = _two_significant_up(spread) if spread else Decimal(0)
+    return cache[fid]
+
+
+def _packet_assumptions(bm: Benchmark, narratives: list[PacketNarrative]) -> list[PacketAssumption]:
+    """Every assumption a packet narrative uses, with its analytical text and sourcing status. Provenance stays
+    behind; text that points at the workbook blocks the build instead of being silently trimmed."""
+    used = {a for n in narratives for a in n.assumption_ids}
+    out = []
+    for a in sorted(bm.assumptions, key=lambda x: x.id):
+        if a.id not in used:
+            continue
+        if _WORKBOOK_REF.search(a.text):
+            raise PacketBuildError(f"ASSUMPTION_TEXT_INVALID: {a.id} text cites the workbook; move that to provenance")
+        out.append(PacketAssumption(id=a.id, text=a.text, sourcing=a.sourcing, introduced_by=a.introduced_by,
+                                    allowed_use=a.allowed_use, must_disclose=a.must_disclose))
+    return out
+
+
+ALL_KINDS = frozenset(StatementKind)
+INTERPRETIVE_OR_LIMITATION = frozenset({StatementKind.interpretive, StatementKind.limitation})
+
+
+def legal_kinds(alt: CoverageAlternative, narratives: dict[str, PacketNarrative],
+                assumptions: dict[str, PacketAssumption]) -> frozenset[StatementKind]:
+    """Statement kinds that may legally cite every ID of the alternative together. Interpretive narratives and
+    interpretive-only assumptions can only sit under an interpretive statement or a limitation."""
+    kinds = ALL_KINDS
+    for nid in alt.narrative_ids:
+        if narratives[nid].evidence_type is EvidenceType.interpretive:
+            kinds &= INTERPRETIVE_OR_LIMITATION
+    for aid in alt.assumption_ids:
+        if assumptions[aid].allowed_use is AssumptionUse.interpretive_only:
+            kinds &= INTERPRETIVE_OR_LIMITATION
+    return kinds
+
+
+def minimum_statement_slots(achievable: list[frozenset[StatementKind]]) -> int:
+    """Fewest statements that can cover every role. Roles that share an achievable kind can be covered by one
+    statement of that kind (legality is per ID, so the union of their IDs stays legal), so the minimum is the smallest
+    set of kinds that meets every role's achievable kinds. Exact over the four statement kinds."""
+    kinds = sorted(ALL_KINDS, key=lambda k: k.value)
+    for size in range(1, len(kinds) + 1):
+        for chosen in combinations(kinds, size):
+            if all(a & set(chosen) for a in achievable):
+                return size
+    raise PacketBuildError("COVERAGE_INFEASIBLE: a role has no statement kind that can cover it")
+
+
+def _coverage_policy(policy: dict[str, Any], bounds: StatementBounds, surfacing: SurfacingPolicy,
+                     facts: list[PacketFact], narratives: list[PacketNarrative],
+                     reconciliations: list[PacketReconciliation],
+                     assumptions: list[PacketAssumption], unavailable: set[str] = frozenset()) -> CoveragePolicy:
+    """Validate the role policy against this packet and check that it can fit in the statement bounds. An
+    alternative marked availability_dependent is dropped when it names a benchmark fact this packet could not compute
+    (the packet flags it unavailable); an unmarked alternative in that position, or any unknown ID, is a policy error,
+    and a role left with no viable alternative is infeasible. A required role is never silently weakened."""
+    raw = policy.get("coverage_policy")
+    if raw is None:
+        raise PacketBuildError("COVERAGE_POLICY_INVALID: brief policy has no coverage_policy")
+    try:
+        roles = [CoverageRole.model_validate(r) for r in raw["roles"]]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PacketBuildError(f"COVERAGE_POLICY_INVALID: {exc}") from exc
+    if not roles:
+        raise PacketBuildError("COVERAGE_POLICY_INVALID: no coverage roles")
+    known = {"fact_ids": {f.id for f in facts}, "reconciliation_ids": {r.id for r in reconciliations},
+             "narrative_ids": {n.id for n in narratives}, "assumption_ids": {a.id for a in assumptions}}
+    nmap, amap = {n.id: n for n in narratives}, {a.id: a for a in assumptions}
+    mandatory = [*surfacing.mandatory_reconciliation_ids, *surfacing.mandatory_disclosure_gap_ids,
+                 *surfacing.mandatory_comparability_note_ids]
+    problems, achievable, seen, pruned = [], [], set(), []
+    for role in roles:
+        label = role.role
+        if label in seen:
+            problems.append(f"{label}: duplicate role")
+        seen.add(label)
+        allowed = frozenset(role.statement_kinds)
+        if role.from_surfacing_policy:
+            if role.any_of:
+                problems.append(f"{label}: a surfacing-policy role takes no alternatives")
+            if not mandatory:
+                problems.append(f"{label}: the surfacing policy designates no mandatory limitation")
+            if StatementKind.limitation not in allowed:
+                problems.append(f"{label}: mandatory limitations can only be limitation statements")
+            achievable.append(allowed & {StatementKind.limitation})
+            pruned.append(role)
+            continue
+        if not role.any_of:
+            problems.append(f"{label}: no alternatives")
+        reach: set[StatementKind] = set()
+        kept = []
+        for i, alt in enumerate(role.any_of, 1):
+            if not alt.all_ids():
+                problems.append(f"{label}: alternative {i} is empty")
+                continue
+            missing = sorted(set(alt.fact_ids) & unavailable)
+            if missing:
+                if not alt.availability_dependent:
+                    problems.append(f"{label}: alternative {i} needs {', '.join(missing)}, which this packet cannot "
+                                    f"compute, and is not marked availability_dependent")
+                continue
+            unknown = [f"{field} {x}" for field, ids in known.items() for x in getattr(alt, field) if x not in ids]
+            if unknown:
+                problems.append(f"{label}: alternative {i} names IDs not in the packet: {', '.join(unknown)}")
+                continue
+            kinds = legal_kinds(alt, nmap, amap) & allowed
+            if not kinds:
+                problems.append(f"{label}: alternative {i} cannot legally be cited by any allowed statement kind "
+                                f"({', '.join(sorted(k.value for k in allowed))})")
+            reach |= kinds
+            kept.append(alt)
+        if role.any_of and not kept and not any(p.startswith(f"{label}:") for p in problems):
+            problems.append(f"{label}: no viable alternative; every alternative names a fact this packet cannot "
+                            f"compute")
+        pruned.append(role.model_copy(update={"any_of": kept}))
+        achievable.append(frozenset(reach))
+    if problems:
+        raise PacketBuildError("COVERAGE_POLICY_INVALID: " + "; ".join(problems))
+    slots = minimum_statement_slots(achievable)
+    if slots > bounds.max:
+        raise PacketBuildError(f"COVERAGE_INFEASIBLE: required coverage needs at least {slots} statements; "
+                               f"statement bounds allow {bounds.max}")
+    return CoveragePolicy(roles=pruned, min_statement_slots=slots)
+
+
+def _prose_policy(policy: dict[str, Any]) -> ProsePolicy:
+    prose = ProsePolicy.model_validate(policy["prose_policy"])
+    for term in prose.internal_language:
+        try:
+            re.compile(term.pattern)
+        except re.error as exc:
+            raise PacketBuildError(f"PROSE_POLICY_INVALID: {term.concept}: {exc}") from exc
+    return prose
+
+
+def _packet_assertions(bm: Benchmark, narratives: list[PacketNarrative]) -> list[PacketAssertion]:
+    kept = {n.id for n in narratives}
+    out = []
+    for a in sorted(bm.assertions, key=lambda x: x.id):
+        if a.narrative_id not in kept:
+            continue
+        if _WORKBOOK_REF.search(a.text):
+            raise PacketBuildError(f"ASSERTION_TEXT_INVALID: {a.id} text cites the workbook")
+        out.append(PacketAssertion(id=a.id, narrative_id=a.narrative_id, text=a.text, voice=a.voice, quote=a.quote))
+    return out
+
+
+def _voice_policy(policy: dict[str, Any]) -> VoicePolicy:
+    if "voice_policy" not in policy:
+        raise PacketBuildError("VOICE_POLICY_INVALID: brief policy has no voice_policy")
+    voice = VoicePolicy.model_validate(policy["voice_policy"])
+    for pattern in voice.attribution_patterns:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise PacketBuildError(f"VOICE_POLICY_INVALID: {pattern}: {exc}") from exc
+    return voice
+
+
+def _display_policy(policy: dict[str, Any]) -> tuple[DisplayPolicy, dict[str, dict[str, Any]]]:
+    raw = policy.get("display_policy")
+    if raw is None:
+        raise PacketBuildError("DISPLAY_POLICY_INVALID: brief policy has no display_policy")
+    overrides = raw.get("fact_overrides", {})
+    return DisplayPolicy(approximation_markers=raw["approximation_markers"]), overrides
+
+
+def _presentation(fid: str, f: FinancialFact, uncertainty: Decimal | None,
+                  override: dict[str, Any] | None) -> dict[str, Any]:
+    """Python-owned presentation: display step, approximation status and canonical strings. Sourced figures keep
+    their disclosed precision; a derived figure is rounded no finer than its input-rounding uncertainty allows."""
+    sourced = f.origin is Origin.sourced
+    native = Decimal(10) ** -(_decimals(f.precision) if sourced else DERIVED_DISPLAY_DECIMALS[f.unit])
+    step = native if sourced or not uncertainty else max(native, uncertainty_step(uncertainty))
+    approximate = step > native
+    wording = None
+    if override:
+        problems = []
+        if sourced:
+            problems.append("sourced figures keep their disclosed display")
+        if "display_step" in override:
+            o_step = Decimal(str(override["display_step"]))
+            if o_step < native or (uncertainty is not None and o_step < uncertainty):
+                problems.append(f"display_step {o_step} is finer than the precision the inputs support")
+            step = o_step
+            approximate = approximate or step > native
+        if override.get("approximate") is False and approximate:
+            problems.append("an uncertainty-rounded figure cannot be marked exact")
+        approximate = approximate or bool(override.get("approximate"))
+        wording = override.get("display_wording")
+        if wording is not None and re.search(r"\d", wording):
+            problems.append("display_wording may not contain digits; numeric renderings are generated")
+        if not override.get("reason"):
+            problems.append("an override must give a reason")
+        if problems:
+            raise PacketBuildError(f"DISPLAY_POLICY_INVALID: {fid}: " + "; ".join(problems))
+    display = format_display(f.value, f.unit, step, approximate)
+    return dict(display=display, display_wording=wording or display, display_step=step, approximate=approximate,
+                max_decimals=_decimals(step))
 
 
 def _fact_flags(fact: FinancialFact) -> list[str]:
@@ -360,17 +714,21 @@ def build_brief_packet(
         for s in subjects:
             note_ids_by_fact.setdefault(s, []).append(note["id"])
 
+    display_policy, overrides = _display_policy(policy)
+    unknown = sorted(set(overrides) - set(available))
+    if unknown:
+        raise PacketBuildError(f"DISPLAY_POLICY_INVALID: overrides name facts not in the packet: {unknown}")
+    widths: dict[str, Decimal | None] = {}
     facts = []
     for fid in sorted(available):
         f = available[fid]
         sourced = f.origin is Origin.sourced
-        decimals = _decimals(f.precision) if sourced else DERIVED_DISPLAY_DECIMALS[f.unit]
+        uncertainty = None if sourced else propagate_uncertainty(fid, result.facts, result.calculations, widths)
         flags = _fact_flags(f)
         facts.append(PacketFact(
             id=fid, metric=f.metric, period=f.period, period_type=f.period_type, scope=f.scope, unit=f.unit,
-            origin=f.origin, value=f.value, display=format_display(f.value, f.unit, decimals),
-            precision=f.precision, max_decimals=decimals if sourced else DERIVED_MAX_DECIMALS,
-            uncertainty=None if sourced else result.calculations[fid].uncertainty,
+            origin=f.origin, value=f.value, **_presentation(fid, f, uncertainty, overrides.get(fid)),
+            precision=f.precision, uncertainty=uncertainty,
             price_basis=f.price_basis, basis=_relabel(f.basis, terminology), flags=flags,
             requires_limitation=bool(material & set(flags)), source_ids=list(f.source_ids),
             derived_from=list(f.inputs), comparability_note_ids=note_ids_by_fact.get(fid, []),
@@ -379,15 +737,12 @@ def build_brief_packet(
 
     narratives_src = {n.id: n for n in bm.narratives if n.review_status is not ReviewStatus.rejected}
 
-    def clean(items: list[str]) -> list[str]:
-        return [c for c in (_strip_workbook_refs(i) for i in items) if c]
-
     def inherited(nid: str, seen: set[str]) -> list[str]:
         out: list[str] = []
         for p in narratives_src[nid].premise_ids:
             if p in narratives_src and p not in seen:
                 seen.add(p)
-                out += clean(narratives_src[p].assumptions) + inherited(p, seen)
+                out += list(narratives_src[p].assumption_ids) + inherited(p, seen)
         return out
 
     narratives = []
@@ -398,10 +753,14 @@ def build_brief_packet(
             id=n.id, topic=n.topic, claim=n.claim, evidence_type=n.evidence_type, verbatim_quote=n.verbatim_quote,
             speaker=n.speaker, source_kind=n.source_kind, scope=n.scope, period=n.period,
             source_ids=list(n.source_ids), related_fact_ids=[i for i in n.related_fact_ids if i in fact_ids],
-            premise_ids=list(n.premise_ids), assumptions=clean(n.assumptions), inherited_assumptions=inh,
+            premise_ids=list(n.premise_ids), assumption_ids=list(n.assumption_ids),
+            assertion_ids=sorted(a.id for a in bm.assertions if a.narrative_id == n.id),
+            inherited_assumption_ids=[a for a in inh if a not in n.assumption_ids],
             counter_evidence_ids=list(n.counter_evidence_ids), review_status=n.review_status,
-            requires_limitation=n.review_status is ReviewStatus.needs_review or bool(n.assumptions or inh),
+            requires_limitation=n.review_status is ReviewStatus.needs_review or bool(n.assumption_ids or inh),
         ))
+    assumptions = _packet_assumptions(bm, narratives)
+    assertions = _packet_assertions(bm, narratives)
 
     reconciliations = []
     for r in sorted(result.reconciliations, key=lambda x: x.id):
@@ -456,11 +815,17 @@ def build_brief_packet(
     bounds = StatementBounds.model_validate(policy["statement_count"])
     if bounds.min > bounds.max:
         raise PacketBuildError(f"STATEMENT_BOUNDS_INVALID: min {bounds.min} > max {bounds.max}")
+    coverage = _coverage_policy(policy, bounds, surfacing, facts, narratives, reconciliations, assumptions,
+                                unavailable=set(unavailable))
 
     payload = dict(
         analysis_id=policy["analysis_id"], company=policy["company"], period=policy["period"],
         scope=policy["scope"], generated_at=generated_at or datetime.now(timezone.utc), packet_hash="",
-        material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds, sources=sources, facts=facts, narratives=narratives,
+        material_flags=sorted(material), surfacing_policy=surfacing, statement_bounds=bounds,
+        display_policy=display_policy, inference_policy=InferencePolicy.model_validate(policy["inference_policy"]),
+        prose_policy=_prose_policy(policy), coverage_policy=coverage, voice_policy=_voice_policy(policy),
+        sources=sources, facts=facts, narratives=narratives,
+        assumptions=assumptions, assertions=assertions,
         reconciliations=reconciliations, comparability_notes=notes, open_flags=open_flags,
         forbidden_values=forbidden,
     )

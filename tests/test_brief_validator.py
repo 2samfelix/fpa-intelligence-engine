@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from fpa_engine.brief import BriefMetadata, BriefStatement, ExecutiveBrief, brief_title
+from fpa_engine.brief_demo import fixture_dir
 from fpa_engine.brief_validator import (
     UNIT_CONVERSIONS,
     extract_numbers,
@@ -51,7 +52,7 @@ def test_units_signs_and_ranges():
 
 def test_matching_values_at_written_precision_pass(packet):
     assert codes(packet, st("A", "fact", "CI sales were $8,346M, about $8.3 billion.", fact_ids=["S01"])) == set()
-    assert codes(packet, st("A", "fact", "Reported growth was 34.83%, or roughly 35%.", fact_ids=["D03"])) == set()
+    assert codes(packet, st("A", "fact", "Reported growth was 34.8%, or roughly 35%.", fact_ids=["D03"])) == set()
 
 
 def test_false_precision_is_rejected(packet):
@@ -66,7 +67,8 @@ def test_uncited_fact_value_is_rejected(packet):
 def test_ratio_arithmetic_requires_the_derived_fact(packet):
     prose = "The Q2 2026 CI build was 26.7% of the Q1 2026 build."
     assert codes(packet, st("A", "fact", prose, fact_ids=["S23", "S25"])) == {"ARITHMETIC_IN_PROSE"}
-    assert codes(packet, st("A", "fact", prose, fact_ids=["D13"])) == set()
+    assert codes(packet, st("A", "fact", "The Q2 2026 CI build was about 25% of the Q1 2026 build.",
+                            fact_ids=["D13"])) == set()
 
 
 def test_disclosed_rounded_figure_is_not_a_forbidden_back_solve(packet):
@@ -87,16 +89,17 @@ def test_forbidden_values_are_rejected_even_in_limitations(packet, text):
     assert codes(packet, st("L", "limitation", text, fact_ids=["S29"])) == {"FORBIDDEN_VALUE"}
 
 
-def test_limitation_may_mention_an_excluded_estimate_without_its_value(packet):
+def test_limitation_may_not_narrate_an_excluded_estimate(packet):
+    """Gate C4 step 3 withdrew the old permission: a brief states the limitation, not the engine's handling."""
     s = st("L", "limitation", "A stale prior estimate was excluded from the validated analysis.", fact_ids=["S29"])
-    assert codes(packet, s) == set()
+    assert codes(packet, s) == {"INTERNAL_PIPELINE_LANGUAGE"}
 
 
 def test_explicit_claim_numbers_must_come_from_the_quote_or_facts(packet):
     assert codes(packet, st("A", "explicit_claim", "Management said CI dealer inventory rose by about $400 million.",
-                            evidence_ids=["N08"])) == set()
+                            evidence_ids=["N08"], assertion_ids=["N08-A02"])) == set()
     assert codes(packet, st("A", "explicit_claim", "Management said CI dealer inventory rose by $450 million.",
-                            evidence_ids=["N08"])) == {"UNSUPPORTED_NUMBER"}
+                            evidence_ids=["N08"], assertion_ids=["N08-A02"])) == {"UNSUPPORTED_NUMBER"}
 
 
 def test_reported_adjective_is_not_a_disclosure_claim(packet):
@@ -115,7 +118,8 @@ def test_fact_cannot_lean_on_interpretive_evidence(packet):
 
 
 def test_explicit_claim_needs_evidence(packet):
-    assert codes(packet, st("A", "explicit_claim", "Management was upbeat.")) == {"EXPLICIT_WITHOUT_EVIDENCE"}
+    assert codes(packet, st("A", "explicit_claim", "Management was upbeat.")) == {"EXPLICIT_WITHOUT_EVIDENCE",
+                                                                                   "EXPLICIT_WITHOUT_ASSERTION"}
 
 
 def test_interpretive_must_read_as_inference(packet):
@@ -145,7 +149,7 @@ def test_duplicate_statement_ids_are_rejected(packet):
 # ------------------------------------------------- relationship rules ---
 
 def test_non_comparable_metric_must_be_qualified(packet):
-    unqualified = st("A", "fact", "The Q2 2026 stocking swing was $485M.", fact_ids=["D20"])
+    unqualified = st("A", "fact", "The Q2 2026 stocking swing was ~$500M.", fact_ids=["D20"])
     lim = st("L", "limitation", "Mixed basis.", fact_ids=["D20"], flag_ids=["G02"])
     assert codes(packet, unqualified, lim) == {"NON_COMPARABLE_PRESENTED_AS_PRECISE"}
 
@@ -175,11 +179,14 @@ def test_negated_completion_language_is_not_a_reconciliation_claim(packet):
 
 
 def test_review_and_assumption_dependencies_need_limitations(packet):
-    interp = st("A", "interpretive", "Demand appears to have shifted toward end users.", premise_ids=["N03"])
-    assert codes(packet, interp) == {"MISSING_REVIEW_LIMITATION"}
-    inherited = st("A", "interpretive", "Growth composition appears to have improved.", premise_ids=["N15"])
-    assert codes(packet, inherited) == {"MISSING_REVIEW_LIMITATION"}
-    covered = st("L", "limitation", "Driver-order reading is an assumption.", evidence_ids=["N03"])
+    interp = st("A", "interpretive", "We read this as consistent with a shift toward end users.", premise_ids=["N03"],
+                assumption_ids=["AS01"])
+    assert codes(packet, interp) == {"MISSING_REVIEW_LIMITATION", "MISSING_ASSUMPTION_LIMITATION"}
+    inherited = st("A", "interpretive", "Growth composition is consistent with improvement.", premise_ids=["N15"],
+                   assumption_ids=["AS01"])
+    assert codes(packet, inherited) == {"MISSING_REVIEW_LIMITATION", "MISSING_ASSUMPTION_LIMITATION"}
+    covered = st("L", "limitation", "Driver-order reading is an unsourced assumption.", evidence_ids=["N03"],
+                 assumption_ids=["AS01"])
     assert codes(packet, inherited, covered) == set()
 
 
@@ -196,9 +203,15 @@ MANDATORY = [
 ]
 
 
+# The analytical spine required by the coverage policy, taken from the valid brief fixture.
+SPINE = [{**s, "id": f"C{i}"} for i, s in enumerate(
+    (s for s in json.loads((fixture_dir() / "valid_brief.json").read_text(encoding="utf-8"))["statements"]
+     if s["id"] in ("V2", "V4", "V5", "V6")), 1)]
+
+
 def _payload(packet, statements, **meta) -> dict:
     metadata = {"analysis_id": packet.analysis_id, "packet_hash": packet.packet_hash, "author": "test", **meta}
-    return {"title": brief_title(packet), "statements": [*statements, *MANDATORY],
+    return {"title": brief_title(packet), "statements": [*statements, *MANDATORY, *SPINE],
             "validation_metadata": {k: v for k, v in metadata.items() if v is not None}}
 
 
@@ -239,7 +252,7 @@ def test_payload_validation_accepts_json_text(packet):
 
 
 def test_brief_objects_must_carry_the_hash(packet):
-    statements = [BriefStatement.model_validate(s) for s in [*SIMPLE, *MANDATORY]]
+    statements = [BriefStatement.model_validate(s) for s in [*SIMPLE, *MANDATORY, *SPINE]]
     brief = ExecutiveBrief(title=brief_title(packet), statements=statements,
                            validation_metadata=BriefMetadata(analysis_id=packet.analysis_id,
                                                              packet_hash=packet.packet_hash, author="test"))
@@ -253,14 +266,14 @@ def test_registered_conversions_are_the_only_ones():
 
 
 def test_approved_bps_to_points_conversion_passes(packet):
-    s = st("A", "fact", "CI margin rose 3.2 percentage points year over year in Q2 2026.", fact_ids=["D09"])
+    s = st("A", "fact", "CI margin rose about 3.2 percentage points year over year in Q2 2026.", fact_ids=["D09"])
     assert codes(packet, s) == set()
     disclosed = st("A", "fact", "Tariffs cut Q2 2026 CI margin by 3.4 percentage points.", fact_ids=["S29"])
     assert codes(packet, disclosed) == set()
 
 
 def test_approved_points_to_bps_conversion_passes(packet):
-    s = st("A", "fact", "The Q2 2026 adjusted gap was about 784 bps, a directional reading.", fact_ids=["D07"])
+    s = st("A", "fact", "The Q2 2026 adjusted gap was about 800 bps, a directional reading.", fact_ids=["D07"])
     lim = st("L", "limitation", "Directional only.", fact_ids=["D07"])
     assert codes(packet, s, lim) == set()
 

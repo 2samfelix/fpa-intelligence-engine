@@ -1,11 +1,15 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "96fda5218790e13c4515bd63fc44bbd5e7c983fbbdf67b8ecbde312817a579bb", "author": "hand-written fixture (invalid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "d726abc65d9d39f8077406bfcc3603596fd0dad36adb5e2421695d9f491409bc", "author": "hand-written fixture (invalid)"},
   "statements": [
     {"id": "X1", "kind": "fact", "text": "CI sales grew 34.8% in Q2 2026.", "fact_ids": ["D999"]},
     {"id": "M1", "kind": "limitation", "severity": "critical", "text": "The CI segment profit bridges remain unresolved: the Q2 2026 volume, price-realization and manufacturing-cost drivers were not quantified, so part of each profit change is not assigned to any driver.", "reconciliation_ids": ["R03", "R04", "R05"], "flag_ids": ["G04", "G05", "G06"]},
     {"id": "M2", "kind": "limitation", "severity": "warning", "text": "The prior-year CI segment profit comparative has not been tested for restatement.", "flag_ids": ["G07"], "comparability_note_ids": ["CN06"]},
     {"id": "M3", "kind": "limitation", "severity": "info", "text": "Dealer-inventory dollars are disclosed at Construction Industries scope in some quarters and company-wide in others.", "comparability_note_ids": ["CN04"]},
-    {"id": "M4", "kind": "limitation", "severity": "info", "text": "Price realization appears in both the sales bridge and the segment profit bridge and is a single economic item.", "comparability_note_ids": ["CN12"]}
+    {"id": "M4", "kind": "limitation", "severity": "info", "text": "Price realization appears in both the sales bridge and the segment profit bridge and is a single economic item.", "comparability_note_ids": ["CN12"]},
+    {"id": "C1", "kind": "fact", "severity": "info", "text": "Reported CI sales growth was 34.8% in Q2 2026, compared with 38.1% in Q1 2026; in both quarters Caterpillar's disclosed volume, price, currency and inter-segment components match the reported sales change.", "fact_ids": ["D03", "D04"], "reconciliation_ids": ["R01", "R02"]},
+    {"id": "C2", "kind": "interpretive", "severity": "warning", "text": "We read the change between Q1 and Q2 2026 as consistent with a shift in the composition of growth toward end-user demand: the disclosed CI dealer build fell from $1.5 billion to $400 million while World retail growth rose from 7% to 22%.", "premise_ids": ["S23", "S25", "S21", "S22", "N15"], "assumption_ids": ["AS01"]},
+    {"id": "C3", "kind": "limitation", "severity": "warning", "text": "Retail growth is reported in price-neutral dollars and only to the whole percent, while reported sales and dealer-inventory dollars are current-price; these figures support a directional reading and do not form an additive bridge.", "reconciliation_ids": ["NA01", "NA02"]},
+    {"id": "C4", "kind": "limitation", "severity": "warning", "text": "Reading the order in which management lists volume drivers as a ranking by size is an unsourced assumption, not a disclosed fact, and that evidence still needs review.", "evidence_ids": ["N03"], "assumption_ids": ["AS01"]}
   ]
 }

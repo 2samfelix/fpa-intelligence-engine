@@ -75,7 +75,7 @@ def test_prompt_is_deterministic_and_bound_to_the_packet(packet, benchmark):
 def test_prompt_states_the_synthesis_rules():
     for phrase in ("Use only facts and evidence in the packet", "Do not calculate", "Never write any value listed in "
                    "forbidden_values, in any statement of any kind", "not even in a limitation",
-                   "Copy the display value exactly; never add precision", "premise_ids must list",
+                   "Copy the display value. Never add precision", "premise_ids must list",
                    "Never relabel interpretive evidence as explicit", "mandatory_reconciliation_ids",
                    "mandatory_disclosure_gap_ids", "mandatory_comparability_note_ids", "conditional_narrative_ids",
                    "Do not add limitations for conditional narratives the brief does not rely on",
@@ -185,7 +185,8 @@ def test_hash_mismatch_fails(packet, valid):
     ("invalid_03_unsupported_number.json", {"UNSUPPORTED_NUMBER"}),
     ("invalid_04_arithmetic_in_prose.json", {"ARITHMETIC_IN_PROSE"}),
     ("invalid_08_stale_343_bps.json", {"FORBIDDEN_VALUE"}),
-    ("invalid_05_interpretive_as_explicit.json", {"INTERPRETIVE_AS_EXPLICIT"}),
+    ("invalid_05_interpretive_as_explicit.json", {"INTERPRETIVE_AS_EXPLICIT", "ASSUMPTION_AS_FACT",
+                                                   "ATTRIBUTION_WITHOUT_EVIDENCE"}),
 ])
 def test_contract_violations_are_rejected(packet, name, codes):
     result, _ = _run(packet, _fixture(name), max_attempts=1)
@@ -228,13 +229,25 @@ def test_title_is_deterministic_and_carries_no_model_text(packet, benchmark, val
     assert result.brief.title == brief_title(packet)
 
 
+# One limitation carrying every limitation the valid brief's spine needs, so short briefs can stay valid.
+MERGED_LIMITATION = {
+    "id": "L1", "kind": "limitation",
+    "text": ("Retail growth is price-neutral and reported only to the whole percent, so the dealer-build and retail "
+             "figures support a directional reading only; reading the order in which management lists volume "
+             "drivers as a ranking by size is an unsourced assumption still under review; and the CI segment profit "
+             "bridges remain unresolved, with the prior-year comparative untested for restatement."),
+    "reconciliation_ids": ["NA01", "NA02", "R03", "R04", "R05"], "evidence_ids": ["N03"], "assumption_ids": ["AS01"],
+    "flag_ids": ["G04", "G05", "G06", "G07"], "comparability_note_ids": ["CN06"],
+}
+
+
 @pytest.mark.parametrize("keep", [4, 13])
 def test_statement_count_is_bounded(packet, valid, keep):
     by_id = {s["id"]: s for s in valid["statements"]}
     filler = {"kind": "limitation", "text": "Dealer-inventory dollars change scope between quarters.",
               "comparability_note_ids": ["CN04"]}
-    if keep == 4:  # two facts plus the two mandatory-surfacing limitations: valid apart from its length
-        valid["statements"] = [by_id[i] for i in ("V1", "V2", "V8", "V9")]
+    if keep == 4:  # the spine in three statements plus one filler: valid apart from its length
+        valid["statements"] = [by_id["V2"], by_id["V4"], MERGED_LIMITATION, {**filler, "id": "F0"}]
     else:
         valid["statements"] += [{**filler, "id": f"F{i}"} for i in range(keep - len(by_id))]
     assert len(valid["statements"]) == keep
@@ -248,7 +261,7 @@ def test_statement_count_bounds_are_inclusive(packet, valid, keep):
     by_id = {s["id"]: s for s in valid["statements"]}
     filler = {"kind": "limitation", "text": "Dealer-inventory dollars change scope between quarters.",
               "comparability_note_ids": ["CN04"]}
-    base = [by_id[i] for i in ("V1", "V2", "V8", "V9")] if keep == 5 else list(by_id.values())
+    base = [by_id["V2"], by_id["V4"], MERGED_LIMITATION] if keep == 5 else list(by_id.values())
     valid["statements"] = base + [{**filler, "id": f"F{i}"} for i in range(keep - len(base))]
     assert (packet.statement_bounds.min, packet.statement_bounds.max) == (5, 12)
     assert _run(packet, valid)[0].accepted
@@ -256,25 +269,29 @@ def test_statement_count_bounds_are_inclusive(packet, valid, keep):
 
 def test_forbidden_value_cannot_enter_through_a_limitation(packet, valid):
     valid["statements"].append({"id": "V10", "kind": "limitation", "fact_ids": ["S29"],
-                                "text": "A stale 343 bps estimate was excluded from the validated analysis."})
+                                "text": "A 343 bps reading of the Q2 2026 CI tariff impact is not the call figure."})
     result, _ = _run(packet, valid, max_attempts=1)
     _assert_rejected(result)
     assert _codes(result) == {("FORBIDDEN_VALUE", "FV01")}
     valid["statements"][-1]["text"] = "A stale prior estimate was excluded from the validated analysis."
+    result, _ = _run(packet, valid, max_attempts=1)
+    assert _codes(result) == {("INTERNAL_PIPELINE_LANGUAGE", None)}
+    valid["statements"][-1]["text"] = ("The Q2 2026 CI tariff impact of 340 bps comes from the earnings call and "
+                                       "uses a different method from the earlier quarters.")
     assert _run(packet, valid)[0].accepted
 
 
 def test_irrelevant_review_flags_are_not_forced(packet, valid):
     cited = {i for s in valid["statements"] for i in [*s.get("evidence_ids", []), *s.get("premise_ids", [])]}
     unused = set(packet.surfacing_policy.conditional_narrative_ids) - cited
-    assert unused == {"N06", "N09", "N13", "N14", "N15"}
+    assert unused == {"N06", "N09", "N13", "N14"}
     assert _run(packet, valid)[0].accepted
 
 
 def test_relied_on_review_evidence_requires_a_limitation(packet, valid):
     valid["statements"] = [s for s in valid["statements"] if s["id"] != "V6"]
     result, _ = _run(packet, valid, max_attempts=1)
-    assert _codes(result) == {("MISSING_REVIEW_LIMITATION", "N03")}
+    assert _codes(result) == {("MISSING_REVIEW_LIMITATION", "N15"), ("MISSING_ASSUMPTION_LIMITATION", "AS01")}
 
 
 # ---------------------------------------------------------------- retry ---
@@ -362,7 +379,7 @@ def test_every_attempt_is_logged_without_secrets(packet, valid, caplog, monkeypa
     assert [e["event"] for e in events] == ["synthesis_attempt", "synthesis_attempt", "synthesis_result"]
     for e in events:
         assert e["model"] == "mock-deterministic" and e["packet_hash"] == packet.packet_hash
-        assert e["prompt_version"] == "synthesis_v2" and e["timestamp"] == T0.isoformat()
+        assert e["prompt_version"] == "synthesis_v3" and e["timestamp"] == T0.isoformat()
     assert [e.get("attempt") for e in events[:2]] == [1, 2]
     assert events[0]["validation"] == "REJECTED" and events[0]["error_codes"] == ["PACKET_HASH_MISMATCH"]
     assert events[2]["validation"] == "ACCEPTED" and events[2]["attempt_count"] == 2

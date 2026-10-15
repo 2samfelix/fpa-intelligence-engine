@@ -10,14 +10,25 @@ from pydantic import ValidationError
 
 from fpa_engine.brief import (
     BriefPacket,
+    CoverageAlternative,
+    CoverageRole,
     BriefStatement,
     ExecutiveBrief,
     ForbiddenValue,
     PacketFact,
     StatementKind,
     brief_title,
+    round_to_step,
 )
-from fpa_engine.schemas import BridgeType, EvidenceType, ReconciliationStatus, StrictModel
+from fpa_engine.schemas import (
+    AssertionVoice,
+    AssumptionUse,
+    BridgeType,
+    EvidenceType,
+    ReconciliationStatus,
+    ReviewStatus,
+    StrictModel,
+)
 
 HUNDRED = Decimal("100")
 EPSILON = Decimal("1e-9")
@@ -42,7 +53,7 @@ _NON_QUANTITATIVE = [
 
 INTERPRETIVE_MARKERS = re.compile(
     r"\b(suggest\w*|appear\w*|likely|indicat\w*|impl(?:y|ies|ied)|consistent with|may|might|could"
-    r"|points? to|seem\w*|interpret\w*|infer\w*|in our view)\b", re.I)
+    r"|points? to|seem\w*|interpret\w*|infer\w*|in our view|we read)\b", re.I)
 DIRECTIONAL_QUALIFIERS = re.compile(
     r"\b(directional(?:ly)?|implied|indicative|not comparable|non-comparable|approximate|direction)\b", re.I)
 COMPLETION_LANGUAGE = re.compile(
@@ -107,6 +118,7 @@ class NumberToken:
     unit: str | None
     written_unit: Decimal
     start: int
+    has_point: bool = False
 
 
 @dataclass(frozen=True)
@@ -156,7 +168,7 @@ def extract_numbers(text: str) -> tuple[list[NumberToken], list[RangeToken]]:
         unit, scale = _unit_and_scale(m.group("suffix"), bool(m.group("cur")))
         value, decimals = _to_decimal(m.group("num"))
         tokens.append(NumberToken(m.group(0).strip(), value * scale, unit,
-                                  Decimal(1).scaleb(-decimals) * scale, m.start()))
+                                  Decimal(1).scaleb(-decimals) * scale, m.start(), decimals > 0))
     for r in ranges:
         for end in (r.low, r.high):
             tokens.append(NumberToken(r.raw, end, r.unit, Decimal("1"), -1))
@@ -181,14 +193,47 @@ def _close(token: NumberToken, value: Decimal) -> bool:
     return abs(token.value - abs(value)) <= token.written_unit / 2 + EPSILON
 
 
+def _expressed_with_step(fact: PacketFact, token_unit: str | None) -> tuple[Decimal, Decimal] | None:
+    """The fact's value and display step in the token's unit, via a registered conversion only."""
+    if _unit_ok(token_unit, fact.unit.value):
+        return fact.value, fact.display_step
+    conversion = UNIT_CONVERSIONS.get((fact.unit.value, token_unit))
+    if conversion is None:
+        return None
+    return fact.value * conversion.factor, fact.display_step * conversion.factor
+
+
 def matches_fact(token: NumberToken, fact: PacketFact) -> bool:
-    expressed = express(fact.value, fact.unit.value, fact.max_decimals, token.unit)
-    return expressed is not None and _close(token, expressed[0])
+    """The token renders this fact: within its written rounding of the value, or equal to the canonical value
+    rounded to the fact's display step (so "~510 bps" matches 509.07 shown at a 10 bps step)."""
+    expressed = _expressed_with_step(fact, token.unit)
+    if expressed is None:
+        return False
+    value, step = expressed
+    return _close(token, value) or abs(token.value - abs(round_to_step(value, step))) <= EPSILON
 
 
 def _false_precision(token: NumberToken, fact: PacketFact) -> bool:
-    expressed = express(fact.value, fact.unit.value, fact.max_decimals, token.unit)
-    return expressed is not None and token.written_unit < Decimal(1).scaleb(-expressed[1])
+    """Finer than the packet's display step: decimals beyond it, or an integer that is not a multiple of it."""
+    expressed = _expressed_with_step(fact, token.unit)
+    if expressed is None:
+        return False
+    step = expressed[1]
+    if token.written_unit >= step:
+        return False
+    return token.has_point or token.value % step != 0
+
+
+def _approximation_marked(text: str, start: int, markers: list[str]) -> bool:
+    """An approved marker sits immediately before the figure (sign and currency symbol aside)."""
+    before = text[:start].rstrip()
+    for marker in markers:
+        if marker[-1].isalpha():
+            if re.search(r"\b" + re.escape(marker) + r"$", before, re.I):
+                return True
+        elif before.endswith(marker):
+            return True
+    return False
 
 
 def _forbidden_hit(token: NumberToken, fv: ForbiddenValue) -> bool:
@@ -223,6 +268,19 @@ class _Context:
         self.recs = packet.reconciliation_map
         self.flags = packet.flag_map
         self.notes = {n.id for n in packet.comparability_notes}
+        self.assumptions = packet.assumption_map
+        markers = packet.inference_policy.assumption_inference_markers
+        self.inference_framing = re.compile(r"\b(?:" + "|".join(re.escape(m) for m in markers) + r")\b", re.I)
+        self.internal_language = [(t.concept, re.compile(t.pattern, re.I))
+                                  for t in packet.prose_policy.internal_language]
+        self.assertions = packet.assertion_map
+        voice = packet.voice_policy
+        self.attribution = [re.compile(p, re.I) for p in voice.attribution_patterns]
+        self.characterization = re.compile(
+            r"\b(?:" + "|".join(re.escape(w) for w in voice.characterization_terms) + r")\b", re.I)
+        self.id_kinds = packet_id_kinds(packet)
+        ids = sorted(self.id_kinds, key=len, reverse=True)
+        self.packet_ids = re.compile(r"(?<![\w-])(?:" + "|".join(re.escape(i) for i in ids) + r")(?![\w-])")
 
     def narrative_chain(self, nid: str) -> set[str]:
         chain, pending = set(), [nid]
@@ -233,6 +291,30 @@ class _Context:
             chain.add(cur)
             pending += [p for p in self.narratives[cur].premise_ids if p in self.narratives]
         return chain
+
+
+def packet_id_kinds(packet: BriefPacket) -> dict[str, str]:
+    """Every identifier the packet defines, with the kind of item it names."""
+    groups = [("source", packet.sources), ("fact", packet.facts), ("narrative", packet.narratives),
+              ("assumption", packet.assumptions), ("assertion", packet.assertions),
+              ("reconciliation", packet.reconciliations),
+              ("comparability note", packet.comparability_notes), ("open flag", packet.open_flags),
+              ("forbidden value", packet.forbidden_values)]
+    return {item.id: kind for kind, items in groups for item in items}
+
+
+def _check_prose(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
+    """Executive prose states the finance, not the engine: no pipeline vocabulary and no packet identifiers."""
+    for concept, pattern in ctx.internal_language:
+        m = pattern.search(s.text)
+        if m:
+            errors.append(_issue("INTERNAL_PIPELINE_LANGUAGE", s,
+                                 f"'{m.group(0)}' is internal pipeline language ({concept}); state the financial "
+                                 f"point or limitation itself, not how the analysis was produced or checked"))
+    for found in dict.fromkeys(m.group(0) for m in ctx.packet_ids.finditer(s.text)):
+        errors.append(_issue("PACKET_ID_IN_PROSE", s,
+                             f"'{found}' is a packet {ctx.id_kinds[found]} ID; keep IDs in the reference fields and "
+                             f"describe the item in words in the text", found))
 
 
 def _issue(code: str, statement: BriefStatement | None, message: str, subject: str | None = None) -> BriefIssue:
@@ -260,6 +342,14 @@ def _check_references(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]
     for gid in s.flag_ids:
         if gid not in ctx.flags:
             errors.append(_issue("UNKNOWN_FLAG_ID", s, f"open flag {gid} is not in the packet", gid))
+            known = False
+    for xid in s.assertion_ids:
+        if xid not in ctx.assertions:
+            errors.append(_issue("UNKNOWN_ASSERTION_ID", s, f"assertion {xid} is not in the packet", xid))
+            known = False
+    for aid in s.assumption_ids:
+        if aid not in ctx.assumptions:
+            errors.append(_issue("UNKNOWN_ASSUMPTION_ID", s, f"assumption {aid} is not in the packet", aid))
             known = False
     for cid in s.comparability_note_ids:
         if cid not in ctx.notes:
@@ -304,6 +394,122 @@ def _cited_narratives(s: BriefStatement, ctx: _Context) -> list[str]:
     return list(dict.fromkeys([*s.evidence_ids, *[p for p in s.premise_ids if p in ctx.narratives]]))
 
 
+_QUOTED = re.compile(r"[\"“”]([^\"“”]+)[\"“”]")
+_ELLIPSIS = re.compile(r"\s*(?:\.\.\.|…)\s*")
+
+
+def _normalize_quote(text: str) -> str:
+    return re.sub(r"\s+", " ", text.replace("’", "'")).strip().strip(".,;: ").casefold()
+
+
+def quoted_spans(text: str) -> list[str]:
+    return [m.group(1) for m in _QUOTED.finditer(text)]
+
+
+def _quote_matches(span: str, verbatim: str) -> bool:
+    """Every fragment of the span (split at an ellipsis) is an exact excerpt of the verbatim quote, ignoring case
+    and whitespace runs, and the fragments occur in the source in the order quoted (not necessarily adjacent).
+    Each fragment is matched at its earliest position after the previous one, which never rejects a valid order."""
+    source = _normalize_quote(verbatim)
+    fragments = [f for f in (_normalize_quote(x) for x in _ELLIPSIS.split(span)) if f]
+    position = 0
+    for fragment in fragments:
+        found = source.find(fragment, position)
+        if found < 0:
+            return False
+        position = found + len(fragment)
+    return bool(fragments)
+
+
+def _quotable(nid: str, ctx: _Context) -> bool:
+    n = ctx.narratives.get(nid)
+    return bool(n and n.evidence_type is EvidenceType.explicit and n.review_status is ReviewStatus.validated
+                and n.verbatim_quote)
+
+
+def _check_voice(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
+    """Assertions, source versus analyst voice, attribution, verbatim quotes and characterization."""
+    cited_narratives = set(_cited_narratives(s, ctx))
+    cited = [ctx.assertions[x] for x in s.assertion_ids]
+    for a in cited:
+        if a.narrative_id not in cited_narratives:
+            errors.append(_issue("ASSERTION_WITHOUT_EVIDENCE", s,
+                                 f"{a.id} belongs to {a.narrative_id}; cite that narrative in evidence_ids or "
+                                 f"premise_ids", a.id))
+    if s.kind is StatementKind.explicit_claim and not s.assertion_ids:
+        errors.append(_issue("EXPLICIT_WITHOUT_ASSERTION", s,
+                             "an explicit claim must list the assertions it restates in assertion_ids"))
+    attributed = any(p.search(s.text) for p in ctx.attribution)
+    for a in cited:
+        if a.voice is AssertionVoice.source and not attributed:
+            errors.append(_issue("SOURCE_VOICE_NOT_ATTRIBUTED", s,
+                                 f"{a.id} is the source's own wording; attribute it to the source in the statement",
+                                 a.id))
+    denies = s.kind is StatementKind.limitation and NEGATION.search(s.text)
+    backed = any(a.voice is AssertionVoice.source and a.narrative_id in cited_narratives
+                 and _quotable(a.narrative_id, ctx) for a in cited)
+    if attributed and not denies and not backed:
+        errors.append(_issue("ATTRIBUTION_WITHOUT_EVIDENCE", s,
+                             "the statement attributes words or expectations to a source; cite a source-voice "
+                             "assertion of validated, quoted explicit evidence, or state it without attribution"))
+    spans = quoted_spans(s.text)
+    verbatims = [ctx.narratives[n].verbatim_quote for n in sorted(cited_narratives) if _quotable(n, ctx)]
+    for span in spans:
+        if not any(_quote_matches(span, v) for v in verbatims):
+            errors.append(_issue("QUOTE_NOT_VERBATIM", s,
+                                 f"\"{span}\" is not an exact excerpt of the verbatim quote of any validated "
+                                 f"explicit evidence the statement cites"))
+    if spans and not attributed:
+        errors.append(_issue("QUOTE_NOT_ATTRIBUTED", s, "a quotation must be attributed to its source"))
+    if s.kind is StatementKind.limitation:
+        return
+    analyst = [a.text for a in cited if a.voice is AssertionVoice.analyst]
+    if s.kind is StatementKind.interpretive:
+        analyst += [ctx.assumptions[x].text for x in s.assumption_ids if x in ctx.assumptions]
+    source = [f"{a.text} {a.quote or ''}" for a in cited if a.voice is AssertionVoice.source]
+    for term in dict.fromkeys(m.group(0).lower() for m in ctx.characterization.finditer(s.text)):
+        word = re.compile(r"\b" + re.escape(term) + r"\b", re.I)
+        if any(word.search(x) for x in analyst) or (attributed and any(word.search(x) for x in source)):
+            continue
+        owners = sorted(a.id for n in cited_narratives for a in ctx.assertions.values()
+                        if a.narrative_id == n and word.search(f"{a.text} {a.quote or ''}"))
+        hint = (f"; only {', '.join(owners)} uses it: cite it and, if it is source wording, attribute it"
+                if owners else "; no cited assertion supports it")
+        errors.append(_issue("UNSUPPORTED_CHARACTERIZATION", s, f"'{term}' characterizes the evidence{hint}", term))
+
+
+def assumption_dependencies(s: BriefStatement, ctx: _Context) -> set[str]:
+    """Assumptions the statement rests on: those of every narrative it cites (evidence or premise) and of every
+    narrative in their premise chains. Derived from references only, never from prose."""
+    return {a for nid in _cited_narratives(s, ctx) for chained in ctx.narrative_chain(nid)
+            for a in ctx.narratives[chained].assumption_ids}
+
+
+def _used_assumptions(s: BriefStatement, ctx: _Context) -> set[str]:
+    return assumption_dependencies(s, ctx) | set(s.assumption_ids)
+
+
+def _check_assumptions(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
+    if s.kind is StatementKind.limitation:
+        return
+    required = assumption_dependencies(s, ctx)
+    for aid in sorted(required - set(s.assumption_ids)):
+        errors.append(_issue("HIDDEN_ASSUMPTION", s,
+                             f"the statement's premises rest on {aid} ({ctx.assumptions[aid].text}); list it in "
+                             f"assumption_ids", aid))
+    for aid in sorted(_used_assumptions(s, ctx)):
+        a = ctx.assumptions[aid]
+        if a.allowed_use is AssumptionUse.interpretive_only and s.kind is not StatementKind.interpretive:
+            errors.append(_issue("ASSUMPTION_AS_FACT", s,
+                                 f"{aid} is {a.sourcing.value} and may support only an interpretive statement, "
+                                 f"not a {s.kind.value} statement", aid))
+        elif (s.kind is StatementKind.interpretive and (a.must_disclose or a.sourcing.value == "unsourced")
+              and not ctx.inference_framing.search(s.text)):
+            errors.append(_issue("MISSING_ASSUMPTION_DISCLOSURE", s,
+                                 f"the statement rests on {a.sourcing.value} assumption {aid}; frame it in the "
+                                 f"statement itself as inference (for example 'we read', 'consistent with')", aid))
+
+
 def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -> None:
     tokens, ranges = extract_numbers(s.text)
     forbidden = ctx.packet.forbidden_values
@@ -316,6 +522,7 @@ def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -
             errors.append(_issue("FORBIDDEN_VALUE", s, f"'{rng.raw}' is a forbidden value: {hit.reason}", hit.id))
 
     cited = _cited_facts(s, ctx)
+    markers = ctx.packet.display_policy.approximation_markers
     rec_values = [v for rid in s.reconciliation_ids for v in (
         ctx.recs[rid].residual, ctx.recs[rid].allowed, ctx.recs[rid].reported_change,
         ctx.recs[rid].identified_change, ctx.recs[rid].starting_value, ctx.recs[rid].ending_value) if v is not None]
@@ -336,9 +543,17 @@ def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -
         matched = [f for f in cited if matches_fact(token, f)]
         if matched:
             fact = matched[0]
-            if all(_false_precision(token, f) for f in matched):
+            precise_ok = [f for f in matched if not _false_precision(token, f)]
+            if not precise_ok:
                 errors.append(_issue("FALSE_PRECISION", s,
-                                     f"'{token.raw}' is more precise than {fact.id} allows", fact.id))
+                                     f"'{token.raw}' is more precise than {fact.id} allows; write it as "
+                                     f"'{fact.display}'", fact.id))
+            elif (token.start >= 0 and all(f.approximate for f in precise_ok)
+                  and not _approximation_marked(s.text, token.start, markers)):
+                approx = precise_ok[0]
+                errors.append(_issue("APPROXIMATION_MARKER_MISSING", s,
+                                     f"'{token.raw}' renders {approx.id}, which is approximate; write it as "
+                                     f"'{approx.display}' or with another approved approximation marker", approx.id))
             window = s.text[max(0, token.start - 40):token.start] if token.start >= 0 else ""
             if all(f.origin.value == "derived" for f in matched) and DISCLOSURE_VERB.search(window):
                 errors.append(_issue("DERIVED_PRESENTED_AS_DISCLOSED", s,
@@ -393,6 +608,7 @@ def _check_coverage(statements: list[BriefStatement], ctx: _Context, errors: lis
     lim_narr = {i for s in lims for i in [*s.evidence_ids, *s.premise_ids]}
     lim_recs = {i for s in lims for i in s.reconciliation_ids}
     lim_flags = {i for s in lims for i in s.flag_ids}
+    lim_assumptions = {i for s in lims for i in s.assumption_ids}
     reported: set[tuple[str, str]] = set()
 
     def report(code: str, s: BriefStatement, subject: str, message: str) -> None:
@@ -429,6 +645,10 @@ def _check_coverage(statements: list[BriefStatement], ctx: _Context, errors: lis
             if problems and not ({nid} | problems) & lim_narr:
                 report("MISSING_REVIEW_LIMITATION", s, nid,
                        f"{nid} depends on review-required or assumption-based evidence ({', '.join(sorted(problems))})")
+        for aid in sorted(_used_assumptions(s, ctx)):
+            if ctx.assumptions[aid].must_disclose and aid not in lim_assumptions:
+                report("MISSING_ASSUMPTION_LIMITATION", s, aid,
+                       f"{aid} is {ctx.assumptions[aid].sourcing.value}; add a limitation citing it in assumption_ids")
         touched = cited | involved
         for flag in ctx.packet.open_flags:
             if flag.kind.value == "disclosure_gap" and set(flag.related_ids) & touched and flag.id not in lim_flags:
@@ -450,11 +670,56 @@ def validate_statements(packet: BriefPacket, statements: list[BriefStatement]) -
     for s in statements:
         if _check_references(s, ctx, errors):
             _check_kind(s, ctx, errors)
+            _check_prose(s, ctx, errors)
+            _check_assumptions(s, ctx, errors)
+            _check_voice(s, ctx, errors)
             _check_numbers(s, ctx, errors)
             _check_semantics(s, ctx, errors)
             resolvable.append(s)
     _check_coverage(resolvable, ctx, errors)
     return BriefValidationResult(valid=not errors, errors=errors)
+
+
+def statement_references(s: BriefStatement, packet: BriefPacket) -> dict[str, set[str]]:
+    """The structured references a statement carries, grouped by entity type. Coverage reads only these."""
+    facts, narratives = {f.id for f in packet.facts}, {n.id for n in packet.narratives}
+    return {
+        "fact_ids": set(s.fact_ids) | {p for p in s.premise_ids if p in facts},
+        "reconciliation_ids": set(s.reconciliation_ids),
+        "narrative_ids": set(s.evidence_ids) | {p for p in s.premise_ids if p in narratives},
+        "assumption_ids": set(s.assumption_ids),
+    }
+
+
+def _covers(refs: dict[str, set[str]], alt: CoverageAlternative) -> bool:
+    return all(set(getattr(alt, field)) <= ids for field, ids in refs.items())
+
+
+def _describe_alternative(alt: CoverageAlternative) -> str:
+    parts = [f"{field} {' + '.join(getattr(alt, field))}" for field in
+             ("fact_ids", "reconciliation_ids", "narrative_ids", "assumption_ids") if getattr(alt, field)]
+    return " and ".join(parts)
+
+
+def covered_roles(packet: BriefPacket, statements: list[BriefStatement]) -> dict[str, list[str]]:
+    """Role -> IDs of the statements covering it. A statement may cover several roles; each role needs one
+    statement of an allowed kind that cites every ID of one alternative."""
+    out: dict[str, list[str]] = {}
+    refs = [(s, statement_references(s, packet)) for s in statements]
+    for role in packet.coverage_policy.roles:
+        if role.from_surfacing_policy:
+            continue
+        out[role.role] = [s.id for s, r in refs
+                          if s.kind in role.statement_kinds and any(_covers(r, alt) for alt in role.any_of)]
+    return out
+
+
+def _coverage_issue(role: CoverageRole) -> BriefIssue:
+    kinds = " or ".join(k.value for k in role.statement_kinds)
+    options = "; or ".join(_describe_alternative(a) for a in role.any_of)
+    return _issue("MISSING_REQUIRED_COVERAGE", None,
+                  f"required role '{role.role}' is not covered ({role.purpose}). Cover it with one {kinds} "
+                  f"statement whose reference fields include all of: {options}", role.role)
 
 
 def _check_brief_policy(packet: BriefPacket, brief: ExecutiveBrief) -> list[BriefIssue]:
@@ -480,6 +745,9 @@ def _check_brief_policy(packet: BriefPacket, brief: ExecutiveBrief) -> list[Brie
             issues.append(_issue("MISSING_MANDATORY_LIMITATION", None,
                                  f"{label} {subject} is designated mandatory by policy; a limitation must cite it "
                                  f"in {field}", subject))
+    covered = covered_roles(packet, brief.statements)
+    roles = {r.role: r for r in packet.coverage_policy.roles}
+    issues += [_coverage_issue(roles[name]) for name, by in covered.items() if not by]
     return issues
 
 

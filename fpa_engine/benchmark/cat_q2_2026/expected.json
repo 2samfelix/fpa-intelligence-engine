@@ -85,9 +85,9 @@
     "NA08": {"status": "NOT_APPLICABLE", "residual": null}
   },
   "rejected_values": [
-    {"metric": "ci_tariff_margin_impact", "period": "Q2 2026", "value": "342.85", "reason": "Workbook distortion formula re-applied to Q2 2026 (Analysis!I58); not the disclosed figure."},
-    {"metric": "ci_tariff_margin_impact", "period": "Q2 2026", "value": "343", "reason": "Stale rounding artifact (Analysis!A64; DEFERRED.md). Disclosed figure is 340 bps."},
-    {"metric": "ci_margin_recovery_unassigned_bps", "period": "Q4 2025 to Q2 2026", "value": "570", "reason": "Plug from Analysis!A61 that mixes the 606 bps simple ratio with the 340 bps call figure."},
+    {"metric": "ci_tariff_margin_impact", "period": "Q2 2026", "value": "342.85", "reason": "Workbook distortion formula re-applied to Q2 2026; not the disclosed figure. Historical: it sat in Analysis!I58 until portfolio Gate C3, which changed that cell to return the disclosed 340 bps."},
+    {"metric": "ci_tariff_margin_impact", "period": "Q2 2026", "value": "343", "reason": "Stale rounding artifact; the disclosed figure is 340 bps. Historical: it appeared in the Analysis!A64 headline until portfolio Gate C3 corrected it (audit trail in the portfolio DEFERRED.md)."},
+    {"metric": "ci_margin_recovery_unassigned_bps", "period": "Q4 2025 to Q2 2026", "value": "570", "reason": "Plug that mixed the 606 bps simple ratio with the 340 bps call figure. Historical: it appeared in Analysis!A61 until portfolio Gate C3 withdrew it (audit trail in the portfolio DEFERRED.md)."},
     {"metric": "consolidated_sales_bridge_volume", "period": "Q2 2026", "value": "3113", "reason": "Back-solved residual (Consolidated!A15); the disclosed figure is '$3.1 billion'."}
   ],
   "regression": {

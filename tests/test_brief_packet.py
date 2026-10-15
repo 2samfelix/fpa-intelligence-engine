@@ -40,7 +40,8 @@ def test_packet_counts(packet):
 def _free_text(packet) -> list[str]:
     texts = [n.text for n in packet.comparability_notes]
     for n in packet.narratives:
-        texts += [n.claim, n.verbatim_quote or "", *n.assumptions, *n.inherited_assumptions]
+        texts += [n.claim, n.verbatim_quote or ""]
+    texts += [a.text for a in packet.assumptions]
     texts += [f.message for f in packet.open_flags]
     texts += [fv.reason for fv in packet.forbidden_values]
     return texts
@@ -78,9 +79,9 @@ def test_display_and_precision_metadata(packet):
     fm = packet.fact_map
     assert (fm["S23"].display, fm["S23"].precision, fm["S23"].max_decimals) == ("$1,500M", Decimal("100"), 0)
     assert (fm["S17"].display, fm["S17"].max_decimals) == ("23.3%", 1)
-    assert (fm["D03"].display, fm["D03"].max_decimals) == ("34.8%", 2)
-    assert fm["D07"].display == "7.8 pts" and fm["D07"].uncertainty == Decimal("0.5")
-    assert fm["D09"].display == "320 bps" and fm["D09"].uncertainty == Decimal("10")
+    assert (fm["D03"].display, fm["D03"].display_step, fm["D03"].max_decimals) == ("34.8%", Decimal("0.1"), 1)
+    assert fm["D07"].display == "~8 pts" and fm["D07"].uncertainty == Decimal("0.5")
+    assert fm["D09"].display == "~320 bps" and fm["D09"].uncertainty == Decimal("10")
 
 
 def test_d15_stays_derived_not_disclosed(packet):
@@ -88,7 +89,7 @@ def test_d15_stays_derived_not_disclosed(packet):
     assert d15.origin is Origin.derived
     assert "derived_not_disclosed" in d15.flags
     assert d15.source_ids == []
-    assert d15.display == "$284M"
+    assert d15.display == "~$284M" and d15.approximate
     assert "CN10" in d15.comparability_note_ids
     assert packet.fact_map["S29"].value == Decimal("340")
 
@@ -121,7 +122,7 @@ def test_disclosure_gaps_and_review_narratives_surface_as_open_flags(packet):
     for nid in ("N03", "N06", "N09", "N13", "N14", "N15"):
         assert f"RV-{nid}" in flags
     n15 = packet.narrative_map["N15"]
-    assert n15.inherited_assumptions and n15.requires_limitation
+    assert n15.inherited_assumption_ids == ["AS01"] and n15.requires_limitation
 
 
 def test_forbidden_values_cover_gate_b1_rejections(packet, expected):

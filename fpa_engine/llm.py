@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence, Union
 
@@ -139,6 +140,15 @@ def _parse_header_env(raw: str) -> dict[str, str]:
     return headers
 
 
+def _error_type(exc: Any) -> str:
+    """The provider's structured error type (e.g. "authentication_error"), never its free-text message: error
+    bodies can name request headers, which the live-run secret guard rightly refuses to write."""
+    body = getattr(exc, "body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    kind = error.get("type") if isinstance(error, dict) else None
+    return kind if isinstance(kind, str) and re.fullmatch(r"[a-z_]{1,64}", kind) else "unknown"
+
+
 class AnthropicLLMClient:
     """Live client on the official Anthropic SDK. Returns the parsed JSON object; never repairs it.
 
@@ -180,7 +190,7 @@ class AnthropicLLMClient:
         except sdk.APIConnectionError as exc:
             raise LLMProviderError(f"connection error: {type(exc).__name__}") from exc
         except sdk.APIStatusError as exc:
-            raise LLMProviderError(f"HTTP {exc.status_code}: {type(exc).__name__}: {exc.message}") from exc
+            raise LLMProviderError(f"HTTP {exc.status_code}: {type(exc).__name__} ({_error_type(exc)})") from exc
         self.last_served_model = getattr(response, "model", None)
         if self.last_served_model != self.model:
             raise LLMProviderError(f"served model {self.last_served_model!r} differs from configured {self.model!r}")

@@ -75,7 +75,7 @@ def test_interpretive_evidence_declares_premises_and_assumptions(benchmark):
     for n in narratives.values():
         if n.evidence_type is EvidenceType.interpretive:
             assert n.premise_ids, n.id
-    assert narratives["N03"].assumptions and narratives["N03"].review_status is ReviewStatus.needs_review
+    assert narratives["N03"].assumption_ids == ["AS01"] and narratives["N03"].review_status is ReviewStatus.needs_review
     assert narratives["N13"].verbatim_quote is None and narratives["N13"].review_status is ReviewStatus.needs_review
 
 

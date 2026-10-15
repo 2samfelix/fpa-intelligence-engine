@@ -104,7 +104,7 @@
     "bridge_type": "non_additive_set",
     "members": ["D21", "S23"],
     "proposed_relation": "implied stocking swing = dealer build(t) - dealer build(t-4)",
-    "notes": "The prior-year build is unquantified (G03). Workbook estimates of a ~$100-150M residual are judgment, not computable."
+    "notes": "The prior-year build is unquantified (G03). A former workbook estimate of a ~$100-150M residual was judgment, not computable; portfolio Gate C3 withdrew it."
   },
   {
     "id": "NA05",

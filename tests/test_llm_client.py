@@ -106,6 +106,26 @@ def test_sdk_errors_become_provider_errors(packet, exc, expected):
     assert "sk-test-not-a-real-key" not in str(info.value)
 
 
+def test_401_invalid_key_run_record_is_written_without_secret_markers(tmp_path):
+    """A 401 body says "invalid x-api-key"; only status, class and structured error type reach the run record, so
+    the unchanged secret guard writes it instead of aborting the gate. Real SDK client, fake transport, no network."""
+    from fpa_engine import gate_c2
+
+    key = "sk-test-not-a-real-key"
+    body = {"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}}
+    transport = httpx2.MockTransport(lambda request: httpx2.Response(401, json=body))
+    sdk = anthropic.Anthropic(api_key=key, base_url=ANTHROPIC_API_URL, max_retries=0,
+                              http_client=httpx2.Client(transport=transport))
+    settings = LLMSettings(api_key=key, model="claude-opus-5-5")
+    out = tmp_path / "out"
+    summary = gate_c2.evaluate(1, out, lambda: AnthropicLLMClient(settings, sdk_client=sdk), (key,))
+    assert summary["provider_error_rate"] == 1.0
+    text = (out / "run_01.json").read_text(encoding="utf-8")
+    assert key not in text and not any(m in text.lower() for m in gate_c2._SECRET_MARKERS)
+    record = json.loads(text)
+    assert [e["message"] for e in record["final_errors"]] == ["HTTP 401: AuthenticationError (authentication_error)"]
+
+
 def test_refusal_and_truncation_are_not_accepted(packet):
     client, _ = _client(_response("", stop_reason="refusal"))
     with pytest.raises(LLMRefusalError, match="no fallback"):
