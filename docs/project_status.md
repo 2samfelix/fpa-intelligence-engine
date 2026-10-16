@@ -1,7 +1,8 @@
 # Project status — FP&A Intelligence Engine
 
-Status as of `main` @ `1e6d367` (merge of PR #2, Gate C4). This document describes only what the repository
-contains and what was evaluated against it. Labels used throughout:
+Status as of `main` @ `1e6d367` (merge of PR #2, Gate C4). This document describes what the repository
+contains and what was evaluated against it. Items from review outside the repository are marked as such.
+Labels used throughout:
 
 - **Implemented** — code or data exists on `main`.
 - **Tested** — covered by the offline test suite (`pytest`, no network, no API key).
@@ -51,7 +52,7 @@ extracted from source documents by the engine.
 | B1 | Deterministic engine: lineage validation, Decimal calculator, bridge classification (`50f5e80`) | Implemented, tested |
 | B2 | Brief packet and deterministic brief contract/validator (`d43f8fc`) | Implemented, tested |
 | C | Structured synthesis pipeline, isolated LLM client (`c4350d5`) | Implemented, tested |
-| C2 | Live-evaluation runner (`1f5dbf4`); merged as PR #1 (`c37934b`) | Implemented, tested; live C2 run results are not stored in this repo. A live C2 evaluation (5/5 accepted, run 2026-10-13) was observed outside the repository; results are not stored here. |
+| C2 | Live-evaluation runner (`1f5dbf4`); merged as PR #1 (`c37934b`) | Implemented, tested. A live C2 evaluation (5/5 accepted, run 2026-10-13) was observed outside the repository; its results are not stored here. |
 | C4 | Semantic fidelity contract, steps 0–6, plus provider-error fix (`a7121eb`…`72d5299`); merged as PR #2 (`1e6d367`) | Implemented, tested, live-evaluated (section 4) |
 
 Gate C4 steps (all implemented and tested):
