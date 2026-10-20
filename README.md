@@ -43,6 +43,7 @@ benchmark JSON ──► loader.py (parse, cross-reference checks)
               ──► synthesizer.py (prompt synthesis_v3; one attempt + at most one corrective retry)
                     └─ llm.py (isolated Anthropic client; mock client for tests)
               ──► brief_validator.py (deterministic acceptance) ──► ACCEPTED / SYNTHESIS_REJECTED / PROVIDER_ERROR
+gate_c2.py — live-evaluation runner (pins prompt version + packet hash; writes allow-listed JSON; secret guard)
 ```
 
 The narrative evidence, assertions, assumptions and policies are hand-curated benchmark data. The engine does not extract anything from source documents. The full rules are in [docs/synthesis_contract.md](docs/synthesis_contract.md).
@@ -74,9 +75,25 @@ python3 -m venv .venv
 pip install -e ".[test,llm]"
 ```
 
+Windows (PowerShell):
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[test,llm]"
+```
+
+If PowerShell blocks the activation script, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first; it applies to the current window only.
+
 Run the test suite (offline: the model client is replaced by a fake, so no network and no key):
 
 ```bash
+python -m pytest
+```
+
+Windows (PowerShell):
+
+```powershell
 python -m pytest
 ```
 
@@ -105,7 +122,28 @@ set -a; . ./.env; set +a
 python -m fpa_engine.synthesizer --out result.json
 ```
 
-Without a key, the command stops with `CONFIG_ERROR: ANTHROPIC_API_KEY is not set` before making any request. Never commit a real key.
+Windows (PowerShell), with the key set for the current session only:
+
+```powershell
+$env:ANTHROPIC_API_KEY = "<your key>"
+python -m fpa_engine.synthesizer --out result.json
+```
+
+To repeat the five-run evaluation (1 to 5 runs are allowed; results go to a timestamped folder under `artifacts/live_synthesis/`, which is git-ignored, or to a folder you name with `--out`):
+
+```bash
+python -m fpa_engine.gate_c2 --runs 5
+```
+
+Windows (PowerShell):
+
+```powershell
+python -m fpa_engine.gate_c2 --runs 5
+```
+
+The runner's file name uses an internal development label. It makes live API calls, which are billed to the key's account.
+
+Without a key, both commands stop with an error saying `ANTHROPIC_API_KEY is not set`, before making any request. Never commit a real key.
 
 ## Repository layout
 
@@ -118,6 +156,7 @@ fpa_engine/                      the engine (Python package)
   synthesizer.py, llm.py         the model call (isolated client)
   brief_validator.py             deterministic acceptance of a brief
   pipeline.py, brief_demo.py     offline command-line entry points
+  gate_c2.py                     live-evaluation runner (several runs of the pinned packet)
   benchmark/cat_q2_2026/         the curated Caterpillar Q2 2026 benchmark (JSON)
     briefs/                      example briefs used by the validator demo and tests
 tests/                           offline test suite (pytest)
