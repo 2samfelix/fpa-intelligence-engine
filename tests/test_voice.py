@@ -190,7 +190,7 @@ def test_quote_from_unvalidated_evidence_fails(packet):
 
 
 def test_unattributed_quote_fails(packet):
-    found = voice_codes(packet, "fact", 'The Q2 2026 build was "about $400 million in Construction Industries".',
+    found = voice_codes(packet, "fact", 'The Q2 2026 build was "400 million dollars in Construction Industries".',
                         fact_ids=["S25"], evidence_ids=["N08"], assertion_ids=["N08-A01"])
     assert found == {"QUOTE_NOT_ATTRIBUTED"}
 

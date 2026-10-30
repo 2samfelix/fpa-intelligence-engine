@@ -96,10 +96,20 @@ def test_limitation_may_not_narrate_an_excluded_estimate(packet):
 
 
 def test_explicit_claim_numbers_must_come_from_the_quote_or_facts(packet):
-    assert codes(packet, st("A", "explicit_claim", "Management said CI dealer inventory rose by about $400 million.",
+    assert codes(packet, st("A", "explicit_claim", "Management said CI dealer inventory rose by $400 million.",
                             evidence_ids=["N08"], assertion_ids=["N08-A02"])) == set()
     assert codes(packet, st("A", "explicit_claim", "Management said CI dealer inventory rose by $450 million.",
                             evidence_ids=["N08"], assertion_ids=["N08-A02"])) == {"UNSUPPORTED_NUMBER"}
+
+
+def test_corrected_n08_quote_passes_and_the_old_about_wording_is_rejected(packet):
+    """Caterpillar's own Q2 2026 call transcript (page 6) has no "about"; the benchmark used to quote it with one."""
+    assert codes(packet, st("A", "explicit_claim", 'Management said "Dealer inventory increased by 400 million '
+                            'dollars in Construction Industries".', evidence_ids=["N08"],
+                            assertion_ids=["N08-A02"])) == set()
+    assert codes(packet, st("A", "explicit_claim", 'Management said "Dealer inventory increased by about $400 '
+                            'million in Construction Industries".', evidence_ids=["N08"],
+                            assertion_ids=["N08-A02"])) == {"QUOTE_NOT_VERBATIM"}
 
 
 N14_FIGURE = st("L", "limitation", "Full-year 2026 tariff cost of about $2.2 billion is not yet reviewed.",

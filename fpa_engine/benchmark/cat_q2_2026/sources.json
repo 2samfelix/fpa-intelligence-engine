@@ -231,12 +231,13 @@
   {
     "id": "T-2Q26-DI",
     "source_kind": "call_transcript",
-    "publisher": "The Motley Fool (third-party transcript of Caterpillar management remarks)",
-    "document": "Caterpillar Q2 2026 Earnings Call Transcript",
-    "excerpt": "Dealer inventory increased by about $400 million in Construction Industries.",
-    "url": "https://www.fool.com/earnings/call-transcripts/2026/08/11/caterpillar-cat-q2-2026-earnings-call-transcript/",
-    "verification_method": "transcript",
-    "retrieved_on": "2026-10-05"
+    "publisher": "Caterpillar Inc. (company transcript of the Q2 2026 earnings call)",
+    "document": "Caterpillar Q2 2026 Earnings Call Transcript (August 4, 2026)",
+    "section": "Page 6, Slide 8 remarks",
+    "excerpt": "Dealer inventory increased by 400 million dollars in Construction Industries compared to a decrease in the second quarter of 2025.",
+    "url": "https://s25.q4cdn.com/358376879/files/doc_financials/2026/q2/2Q-2026-Earnings-Call-Transcript.pdf",
+    "verification_method": "document_read",
+    "retrieved_on": "2026-10-30"
   },
   {
     "id": "T-2Q26-TARIFF",
@@ -263,11 +264,11 @@
   {
     "id": "T-2Q26-GUIDE",
     "source_kind": "call_transcript",
-    "publisher": "The Motley Fool (third-party transcript of Caterpillar management remarks)",
-    "document": "Caterpillar Q2 2026 Earnings Call Transcript",
-    "section": "Tariff and dealer-inventory outlook commentary",
-    "url": "https://www.fool.com/earnings/call-transcripts/2026/08/11/caterpillar-cat-q2-2026-earnings-call-transcript/",
-    "verification_method": "transcript",
-    "retrieved_on": "2026-10-05"
+    "publisher": "Caterpillar Inc. (company transcript of the Q2 2026 earnings call)",
+    "document": "Caterpillar Q2 2026 Earnings Call Transcript (August 4, 2026)",
+    "section": "Tariff and dealer-inventory outlook commentary, pages 9-10",
+    "url": "https://s25.q4cdn.com/358376879/files/doc_financials/2026/q2/2Q-2026-Earnings-Call-Transcript.pdf",
+    "verification_method": "document_read",
+    "retrieved_on": "2026-10-30"
   }
 ]
