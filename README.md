@@ -2,7 +2,7 @@
 
 The AI writes the brief. Code does the math and decides whether the writing is accepted.
 
-The model only sees verified figures and can only write structured statements that point to them. Every number is checked against the computed values and every quote against its source, and a statement that fails is rejected. That does not mean the briefs are right in judgment. The checks confirm that figures and quotes match the evidence, not that the interpretation is the right one.
+The model only sees the benchmark's facts and evidence and can only write structured statements that point to them. A deterministic validator checks each statement: a number it writes must match a fact it cites (at the precision it is written to), a reconciliation it cites, or a figure in validated evidence it cites; text in quotation marks must be an exact excerpt of the curated source excerpt stored in the benchmark; and every ID it cites must exist in the input packet. A statement that fails is rejected. That does not mean the briefs are right in judgment. The checks confirm that figures and quotes match the curated evidence, not that the interpretation is the right one, and nothing is compared with the original filings. See [What the validator does not check](#what-the-validator-does-not-check).
 
 - Portfolio page: https://personal-portfolio-sam-felix.vercel.app/projects/fpa-intelligence-engine
 - Project status, with what is and is not established: [docs/project_status.md](docs/project_status.md)
@@ -29,7 +29,7 @@ This is part of a real brief the engine produced and accepted. It is shown unedi
 
 1. **Load and validate.** The loader reads the benchmark's JSON files and checks that their cross-references line up. A validator then checks every input and its lineage back to the evidence. Any error stops the pipeline.
 2. **Calculate and reconcile.** Python computes the derived figures with exact decimal arithmetic, using a registry of named formulas. Each reconciliation is then marked reconciled, unresolved or not applicable. The engine never forces a tie-out.
-3. **Package.** The verified facts go into a fixed, allowlisted and hashed input packet, so every run can be traced to exactly what the model saw.
+3. **Package.** The facts that pass those input checks go into a fixed, allowlisted and hashed input packet, so every run can be traced to exactly what the model saw.
 4. **Write, then check.** The model writes structured statements only, using a pinned prompt (`synthesis_v3`). A deterministic validator accepts or rejects the brief. There is one attempt plus at most one corrective retry. No second AI grades the first, and no embeddings are used for acceptance.
 
 Python owns the arithmetic, display precision, evidence classification, assumption status, assertions, required coverage and acceptance. The model writes the statements; the brief's title is generated from packet metadata.
@@ -65,6 +65,22 @@ The live-run records are held outside this repository (the output folder is git-
 - Some benchmark entries are known to need correction. They are documented in docs/project_status.md.
 - The model chose the severity labels itself, and they varied across runs.
 
+## What the validator does not check
+
+The validator's rules are deterministic pattern and reference checks. A brief can pass them and still be wrong in these ways:
+
+- **Fiscal periods.** Quarter and year labels are skipped when numbers are checked, so a correct figure given the wrong quarter or year passes.
+- **Direction and sign.** Numbers are compared without their sign: "fell" for "rose", or "-\$703M" for an increase, passes.
+- **Segment or company.** A correct figure attached to the wrong segment passes.
+- **Relevance of citations.** Cited IDs must exist and be of an allowed kind; they need not support the sentence.
+- **Numbers and arithmetic in words.** "About nine billion dollars", "roughly half" or "volume plus price equals the increase" are not checked.
+- **Unlabelled units.** A figure with no unit, or written in "thousand", is matched as if it were in the fact's unit.
+- **Paraphrase.** An attributed statement without quotation marks must rest on quoted, validated source evidence, but its wording is not compared with that evidence. A quotation shortened with an ellipsis can drop a clause and still pass.
+- **Quotes against the filings.** Quotations are compared with the excerpts stored in the benchmark, not with the source documents.
+- **Causal claims.** "Because of", "driven by" or "caused by" are not tested against the evidence. The prompt forbids invented causes; the validator does not enforce it.
+- **Judgement words.** Only the evaluative words listed in the benchmark's voice policy are checked, and an opinion written as a fact statement passes if its numbers are cited.
+- **Severity.** The severity label on each statement is not validated.
+
 ## Run it
 
 Requires Python 3.11 or later. Everything below except the last step runs offline, with no API key.
@@ -97,7 +113,7 @@ Windows (PowerShell):
 python -m pytest
 ```
 
-This should report 735 passed. If you install only `".[test]"`, the tests for the live model client are skipped because the Anthropic SDK is not installed.
+The suite has 738 automated test cases (pytest counts each parametrized case separately), and this should report 738 passed. If you install only `".[test]"`, the 18 tests for the live model client are skipped because the Anthropic SDK is not installed, and 720 run.
 
 Run the deterministic pipeline on the Caterpillar benchmark. It prints the loaded facts, validation results, derived figures and each reconciliation's status (add `--json` for machine-readable output):
 
