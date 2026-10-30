@@ -1,6 +1,6 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "d726abc65d9d39f8077406bfcc3603596fd0dad36adb5e2421695d9f491409bc", "author": "hand-written fixture (invalid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "5eeb00d3342b281452f30eb9cef8f8026d4fa96b1b73a385e9d82c01e574291d", "author": "hand-written fixture (invalid)"},
   "statements": [
     {"id": "X1", "kind": "fact", "text": "The Q1 2026 CI segment profit bridge fully reconciles: volume, price and manufacturing costs account for the entire $511M increase.", "fact_ids": ["D12", "S26", "S27", "S28"], "reconciliation_ids": ["R03"]},
     {"id": "X2", "kind": "limitation", "text": "The prior-year profit comparative has not been tested for restatement.", "fact_ids": ["D12"], "reconciliation_ids": ["R03"]},

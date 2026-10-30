@@ -11,7 +11,11 @@ The synthesis contract is identified by two pins, which must match together:
 | Pin | Value | Where |
 | --- | --- | --- |
 | Prompt version | `synthesis_v3` | `fpa_engine/synthesizer.py` `PROMPT_VERSION`; `fpa_engine/gate_c2.py` `EXPECTED_PROMPT_VERSION` |
-| Packet hash (Caterpillar Q2 2026 CI) | `d726abc65d9d39f8077406bfcc3603596fd0dad36adb5e2421695d9f491409bc` | `fpa_engine/gate_c2.py` `EXPECTED_PACKET_HASH`; `tests/test_brief_policy.py` `CURRENT_HASH`; every brief fixture |
+| Packet hash (Caterpillar Q2 2026 CI) | `5eeb00d3342b281452f30eb9cef8f8026d4fa96b1b73a385e9d82c01e574291d` | `fpa_engine/gate_c2.py` `EXPECTED_PACKET_HASH`; `tests/test_brief_policy.py` `CURRENT_HASH`; every brief fixture |
+
+The recorded Gate C4 live runs were made against the earlier packet hash
+`d726abc65d9d39f8077406bfcc3603596fd0dad36adb5e2421695d9f491409bc`; correcting N08 and N14 from Caterpillar's own
+transcript (PR #5) moved it to the value above.
 
 The packet hash covers every field of the packet except its build timestamp, so any change to facts, display,
 assumptions, assertions or policy changes the hash. The live evaluation runner refuses to start unless both pins
