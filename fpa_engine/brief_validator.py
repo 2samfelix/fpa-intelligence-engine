@@ -526,10 +526,14 @@ def _check_numbers(s: BriefStatement, ctx: _Context, errors: list[BriefIssue]) -
     rec_values = [v for rid in s.reconciliation_ids for v in (
         ctx.recs[rid].residual, ctx.recs[rid].allowed, ctx.recs[rid].reported_change,
         ctx.recs[rid].identified_change, ctx.recs[rid].starting_value, ctx.recs[rid].ending_value) if v is not None]
+    # Figures in cited evidence count as support only once that evidence is validated: a needs-review
+    # narrative's claim (for example an unquoted or incomplete paraphrase) must not let its numbers through.
     quote_tokens: list[NumberToken] = []
     if s.kind in (StatementKind.explicit_claim, StatementKind.limitation):
         for nid in s.evidence_ids:
             n = ctx.narratives[nid]
+            if n.review_status is not ReviewStatus.validated:
+                continue
             quote_tokens += extract_numbers(" ".join(filter(None, [n.verbatim_quote, n.claim])))[0]
     arithmetic = _arithmetic_candidates([f.value for f in cited])
 

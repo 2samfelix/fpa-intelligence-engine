@@ -41,7 +41,7 @@ def test_currency_scaling_and_written_precision():
     assert by_raw["7.0%"].unit == "pct" and by_raw["7.0%"].written_unit == Decimal("0.1")
 
 
-def test_units_signs_and_ranges():
+def test_signed_tokens_get_a_unit_and_ranges_are_parsed():
     tokens, ranges = extract_numbers("+$12M, -470 bps, 7.8 percentage points and $100–150M")
     units = {t.raw: t.unit for t in tokens}
     assert units["+$12M"] == "usd_m" and units["-470 bps"] == "bps" and units["7.8 percentage points"] == "pts"
@@ -100,6 +100,29 @@ def test_explicit_claim_numbers_must_come_from_the_quote_or_facts(packet):
                             evidence_ids=["N08"], assertion_ids=["N08-A02"])) == set()
     assert codes(packet, st("A", "explicit_claim", "Management said CI dealer inventory rose by $450 million.",
                             evidence_ids=["N08"], assertion_ids=["N08-A02"])) == {"UNSUPPORTED_NUMBER"}
+
+
+N14_FIGURE = st("L", "limitation", "Full-year 2026 tariff cost of about $2.2 billion is not yet reviewed.",
+                evidence_ids=["N14"])
+
+
+def test_needs_review_evidence_does_not_support_its_claim_figures(packet):
+    """Accepted before: a limitation citing N14 could restate the $2.2 billion in N14's unreviewed claim. Now the
+    figure needs other support; "$2.2 billion" (written to the nearest $100M) rounds to D01's $2,156M, which the
+    statement does not cite, so it is reported as an uncited fact value."""
+    assert packet.narrative_map["N14"].review_status.value == "needs_review"
+    assert codes(packet, N14_FIGURE) == {"UNCITED_FACT_VALUE"}
+
+
+def test_validated_evidence_still_supports_its_quoted_figures(packet):
+    assert packet.narrative_map["N04"].review_status.value == "validated"
+    assert codes(packet, st("L", "limitation", "The 340 basis points CI tariff impact comes from the call alone.",
+                            evidence_ids=["N04"])) == set()
+
+
+def test_needs_review_claim_figure_rejects_the_whole_brief(packet):
+    result = validate_brief_payload(packet, _payload(packet, [N14_FIGURE.model_dump(mode="json")]))
+    assert result.codes == {"UNCITED_FACT_VALUE"}
 
 
 def test_reported_adjective_is_not_a_disclosure_claim(packet):
