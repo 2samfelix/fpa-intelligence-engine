@@ -113,7 +113,7 @@ Windows (PowerShell):
 python -m pytest
 ```
 
-The suite has 738 automated test cases (pytest counts each parametrized case separately), and this should report 738 passed. If you install only `".[test]"`, the 18 tests for the live model client are skipped because the Anthropic SDK is not installed, and 720 run.
+The suite has 739 automated test cases (pytest counts each parametrized case separately), and this should report 739 passed. If you install only `".[test]"`, the 18 tests for the live model client are skipped because the Anthropic SDK is not installed, and 721 run.
 
 Run the deterministic pipeline on the Caterpillar benchmark. It prints the loaded facts, validation results, derived figures and each reconciliation's status (add `--json` for machine-readable output):
 
