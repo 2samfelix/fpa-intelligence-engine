@@ -12,7 +12,7 @@ from fpa_engine.brief import ExecutiveBrief, PacketBuildError, brief_title, buil
 from fpa_engine.brief_demo import fixture_dir
 
 T0 = datetime(2026, 10, 12, tzinfo=timezone.utc)
-CURRENT_HASH = "d726abc65d9d39f8077406bfcc3603596fd0dad36adb5e2421695d9f491409bc"
+CURRENT_HASH = "5eeb00d3342b281452f30eb9cef8f8026d4fa96b1b73a385e9d82c01e574291d"
 
 
 def _valid_brief() -> ExecutiveBrief:

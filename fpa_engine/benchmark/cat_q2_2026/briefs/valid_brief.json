@@ -1,6 +1,6 @@
 {
   "title": "Caterpillar Q2 2026 — Construction Industries Executive Brief",
-  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "d726abc65d9d39f8077406bfcc3603596fd0dad36adb5e2421695d9f491409bc", "author": "hand-written fixture (valid)"},
+  "validation_metadata": {"analysis_id": "cat-q2-2026-ci", "packet_hash": "5eeb00d3342b281452f30eb9cef8f8026d4fa96b1b73a385e9d82c01e574291d", "author": "hand-written fixture (valid)"},
   "statements": [
     {"id": "V1", "kind": "fact", "severity": "info", "text": "Disclosed Construction Industries dealer inventory increased $1.5 billion in Q1 2026 and $400 million in Q2 2026.", "fact_ids": ["S23", "S25"]},
     {"id": "V2", "kind": "fact", "severity": "info", "text": "Reported CI sales growth was 34.8% in Q2 2026, compared with 38.1% in Q1 2026; in both quarters Caterpillar's disclosed volume, price, currency and inter-segment components match the reported sales change.", "fact_ids": ["D03", "D04"], "reconciliation_ids": ["R01", "R02"]},

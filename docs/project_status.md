@@ -135,8 +135,8 @@ validator against the pinned Caterpillar packet**; they are deterministic rule c
 - **Source status unverified now.** Source URLs record a retrieval date of 2026-10-05; current availability and the
   licensing of third-party call transcripts are not recorded.
 - **Small live sample** (section 4); no token-usage measurement; no CI.
-- N08's curated quote contains the word "about", which is absent from the Q2 transcript sentence "Dealer inventory increased by $400 million in Construction Industries compared to a decrease in the second quarter of 2025" (manual review, 2026-10-16).
-- N14 combines two separate transcript statements and omits the qualifier "excluding the expected IEEPA tariff recoveries of approximately $400 million".
+- Corrected after this snapshot (PR #5, from Caterpillar's own Q2 2026 call transcript): N08's curated quote contained the word "about", which is absent from the transcript sentence "Dealer inventory increased by 400 million dollars in Construction Industries compared to a decrease in the second quarter of 2025" (page 6). N08, its source excerpt, N08-A01, N08-A02 and the S25 note now use that wording.
+- N14 combines two separate transcript statements (pages 9 and 10). Its claim and N14-A01 now carry the transcript's qualifier "Excluding the expected IEEPA tariff recoveries of approximately 400 million dollars reported in the second quarter" (page 10; restored in PR #5). N14 still has no captured quote and still needs review.
 - The N13 and N14 statements do appear in the Q2 transcript (manual review, 2026-10-16) but their quotes are not yet in the benchmark.
 - The 340 bps tariff figure appeared in only 2 of 5 live runs.
 - The runner's summary gate checks only three criteria.

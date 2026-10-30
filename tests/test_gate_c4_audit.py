@@ -10,7 +10,9 @@ from fpa_engine.brief_demo import fixture_dir
 from fpa_engine.brief_validator import validate_brief, validate_statements
 from fpa_engine.synthesizer import PROMPT_VERSION
 
-C4_PACKET_HASH = "d726abc65d9d39f8077406bfcc3603596fd0dad36adb5e2421695d9f491409bc"
+# The current pinned packet. The recorded Gate C4 live runs were made against the earlier packet d726abc6...;
+# the N08/N14 source corrections (PR #5) moved the hash.
+C4_PACKET_HASH = "5eeb00d3342b281452f30eb9cef8f8026d4fa96b1b73a385e9d82c01e574291d"
 
 
 def st(kind: str, text: str, **ids) -> BriefStatement:
